@@ -53,7 +53,7 @@ export class Player {
     scene.add(this.root);
 
     const model = gltf.scene;
-    model.rotation.y = Math.PI; // the soldier faces +Z; our forward is -Z
+    // The soldier model already faces -Z, which is our forward direction
     model.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
