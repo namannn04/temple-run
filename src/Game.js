@@ -7,6 +7,7 @@ import { TrackAssets } from './world/TrackAssets.js';
 import { Track, LANES } from './world/Track.js';
 import { Forest } from './world/Forest.js';
 import { Player } from './entities/Player.js';
+import { Demons } from './entities/Demons.js';
 import { CameraRig } from './systems/CameraRig.js';
 import { Input } from './systems/Input.js';
 import { UI } from './ui/UI.js';
@@ -62,6 +63,7 @@ export class Game {
       if (e.total) ui.progress(0.6 + (e.loaded / e.total) * 0.3);
     });
     this.player = new Player(this.engine.scene, gltf);
+    this.demons = new Demons(this.engine.scene, this.textures);
     this.rig = new CameraRig(this.engine.camera);
     this.input = new Input(window);
     this.bindInput();
@@ -141,7 +143,12 @@ export class Game {
     this.score = 0;
     this.coins = 0;
     this.multiplier = 1;
-    this.chaseGap = 1; // 1 = demons far behind, 0 = caught
+    this.chaseGap = 0.3; // 1 = demons far behind, 0 = on your heels
+    this.demons.reset();
+    this.demons.visible = false;
+    // Seed the trail behind the start line so the pack has somewhere to run from
+    const first = this.track.first;
+    for (let d = -25; d <= 0; d += 1) this.demons.record(first.toWorld(d, 0, 0), first.yaw);
     this.lastStumble = -99;
     this.powerups = {};
     this.shieldInvuln = 0;
@@ -164,6 +171,7 @@ export class Game {
     this.state = 'playing';
     this.rig.mode = 'play';
     this.player.start();
+    this.demons.visible = true;
     this.ui.show('hud');
     this.ui.toast('RUN!', 900);
   }
@@ -248,6 +256,13 @@ export class Game {
       this.updateChase(dt);
       this.track.ensureAhead(player.seg, player.d);
       this.ui.hud(this);
+    }
+
+    if (playing || dying) {
+      if (player.state !== 'falling') this.demons.record(player.worldPos, player.heading);
+      const pounce = dying && player.deathType === 'caught';
+      const closeness = dying ? (player.state === 'falling' ? 0.6 : 0.97) : 1 - this.chaseGap;
+      this.demons.update(dt, playing ? this.speed : 4, closeness, this.runTime, pounce);
     }
 
     if (dying) {
@@ -387,9 +402,9 @@ export class Game {
   updateChase(dt) {
     // Demons slowly fall back after a stumble
     this.chaseGap = Math.min(1, this.chaseGap + dt * 0.08);
-    const danger = THREE.MathUtils.clamp(1 - this.chaseGap * 1.6, 0, 1);
-    this.engine.grade.uniforms.uDanger.value = danger * 0.8;
-    this.ui.danger(danger * 0.6);
+    const danger = Math.pow(THREE.MathUtils.clamp(1 - this.chaseGap * 1.4, 0, 1), 2);
+    this.engine.grade.uniforms.uDanger.value = danger * 0.35;
+    this.ui.danger(danger * 0.5);
   }
 }
 

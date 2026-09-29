@@ -57,7 +57,7 @@ export const GradeShader = {
       c *= clamp(v, 0.0, 1.0);
 
       // Danger tint at the edges
-      float edge = smoothstep(0.15, 0.75, length(d) * 1.4);
+      float edge = smoothstep(0.35, 0.95, length(d) * 1.4);
       c = mix(c, c * vec3(1.35, 0.45, 0.35), edge * uDanger);
 
       // Film grain
