@@ -89,6 +89,53 @@ export class Player {
       }
     }
 
+    // Power-up visuals: a fresnel shield bubble and a spinning magnet ring
+    this.shieldMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1.25, 32, 20),
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0x7dff9a) } },
+        vertexShader: /* glsl */ `
+          varying vec3 vN;
+          varying vec3 vV;
+          varying vec3 vP;
+          void main() {
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            vN = normalize(normalMatrix * normal);
+            vV = normalize(-mv.xyz);
+            vP = position;
+            gl_Position = projectionMatrix * mv;
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform float uTime;
+          uniform vec3 uColor;
+          varying vec3 vN;
+          varying vec3 vV;
+          varying vec3 vP;
+          void main() {
+            float f = pow(1.0 - abs(dot(vN, vV)), 2.5);
+            float bands = 0.5 + 0.5 * sin(vP.y * 14.0 - uTime * 4.0);
+            gl_FragColor = vec4(uColor * (f * 1.6 + bands * 0.08), f * 0.9 + 0.04);
+          }
+        `,
+      })
+    );
+    this.shieldMesh.position.y = 0.95;
+    this.shieldMesh.visible = false;
+    this.root.add(this.shieldMesh);
+
+    this.magnetMesh = new THREE.Mesh(
+      new THREE.TorusGeometry(0.85, 0.035, 8, 48),
+      new THREE.MeshBasicMaterial({ color: 0x5fd0ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    this.magnetMesh.rotation.x = Math.PI / 2;
+    this.magnetMesh.position.y = 1.0;
+    this.magnetMesh.visible = false;
+    this.root.add(this.magnetMesh);
+
     this.worldPos = new THREE.Vector3();
     this.forward = new THREE.Vector3(0, 0, -1);
     this.reset(null);
@@ -276,6 +323,15 @@ export class Player {
 
   stumble() {
     this.stumbleT = 0.5;
+  }
+
+  setPowerupVisuals(shield, magnet, time) {
+    this.shieldMesh.visible = shield;
+    this.magnetMesh.visible = magnet;
+    this.shieldMesh.material.uniforms.uTime.value = time;
+    this.shieldMesh.position.y = this.sliding ? 0.55 : 0.95;
+    this.magnetMesh.position.y = 1.0 + Math.sin(time * 5) * 0.4;
+    this.magnetMesh.scale.setScalar(1 + Math.sin(time * 9) * 0.06);
   }
 
   stepDeath(dt, speed) {

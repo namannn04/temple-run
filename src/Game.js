@@ -12,6 +12,7 @@ import { CameraRig } from './systems/CameraRig.js';
 import { Input } from './systems/Input.js';
 import { UI } from './ui/UI.js';
 import { Audio } from './systems/Audio.js';
+import { Particles } from './systems/Particles.js';
 
 const BASE_SPEED = 10.5;
 const MAX_SPEED = 25;
@@ -66,6 +67,7 @@ export class Game {
     });
     this.player = new Player(this.engine.scene, gltf);
     this.demons = new Demons(this.engine.scene, this.textures);
+    this.particles = new Particles(this.engine.scene, this.textures.glow);
     this.rig = new CameraRig(this.engine.camera);
     this.input = new Input(window);
     this.bindInput();
@@ -173,6 +175,8 @@ export class Game {
     this.powerups = {};
     this.shieldInvuln = 0;
     this.overTimer = 0;
+    this.hintShown = false;
+    this.particles.clear();
     this.rig.mode = 'menu';
     this.rig.snap(this.player);
   }
@@ -224,6 +228,13 @@ export class Game {
     this.deathReason = reason;
     this.rig.addShake(0.8);
     this.audio.death(this.player.deathType);
+    const p = this.player.worldPos;
+    if (this.player.deathType !== 'fall') {
+      this.particles.emit('dust', p, { count: 26, color: 0xbfae8e, speed: 3, up: 2.5, size: 0.9, life: 1.2, spread: 0.6 });
+    }
+    if (this.player.deathType === 'burn') {
+      this.particles.emit('spark', p.clone().setY(p.y + 1), { count: 40, color: 0xff7a20, speed: 3, up: 4, size: 0.35, life: 0.9, gravity: 1 });
+    }
   }
 
   finishGameOver() {
@@ -272,7 +283,18 @@ export class Game {
 
     if (playing) {
       this.distance += this.speed * dt;
-      this.multiplier = 1 + Math.floor(this.distance / 600);
+      const mult = 1 + Math.floor(this.distance / 600);
+      if (mult !== this.multiplier) {
+        this.multiplier = mult;
+        this.ui.toast(`x${mult} MULTIPLIER`);
+        this.audio.powerup();
+      }
+      // Teach the corner turn on the very first corner
+      if (!this.hintShown && player.seg.index === 0 && player.seg.length - player.d < 26 && this.best < 1500) {
+        this.hintShown = true;
+        const touch = matchMedia('(pointer: coarse)').matches;
+        this.ui.toast(touch ? `SWIPE ${player.seg.turn.toUpperCase()} TO TURN` : `PRESS ${player.seg.turn === 'left' ? '←' : '→'} TO TURN`, 1800);
+      }
       this.score += this.speed * dt * this.multiplier;
       this.checkCollisions();
       this.collectItems(dt);
@@ -295,6 +317,11 @@ export class Game {
     }
 
     this.track.update(dt);
+    if (player.sliding && player.grounded && playing && Math.random() < 0.6) {
+      this.particles.emit('dust', player.worldPos, { count: 1, color: 0xc9b896, speed: 1, up: 0.5, size: 0.6, life: 0.7 });
+    }
+    this.player.setPowerupVisuals(!!this.powerups.shield || this.shieldInvuln > 0, !!this.powerups.magnet, this.engine.time);
+    this.particles.update(dt);
     this.audio.update(dt, {
       speed: this.speed,
       danger: Math.max(0, 1 - this.chaseGap * 1.3),
@@ -311,8 +338,12 @@ export class Game {
     else if (e.type === 'land') {
       this.rig.addShake(0.05);
       this.audio.land();
+      this.particles.emit('dust', this.player.worldPos, { count: 14, color: 0xc9b896, speed: 2.4, up: 0.8, size: 0.7, life: 0.9, spread: 0.5 });
     } else if (e.type === 'turn') this.audio.turn();
-    else if (e.type === 'step') this.audio.step();
+    else if (e.type === 'step') {
+      this.audio.step();
+      if (Math.random() < 0.5) this.particles.emit('dust', this.player.worldPos, { count: 2, color: 0xc9b896, speed: 0.6, up: 0.4, size: 0.45, life: 0.6 });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -412,6 +443,7 @@ export class Game {
           this.coins++;
           this.score += 10 * this.multiplier;
           this.audio.coin();
+          this.particles.emit('spark', c.world, { count: 6, color: 0xffd35a, speed: 2.2, up: 2, size: 0.22, life: 0.45, gravity: -4 });
         }
       }
       for (const pu of seg.powerups) {
@@ -420,6 +452,7 @@ export class Game {
           pu.taken = true;
           this.powerups[pu.kind] = { t: 10, max: 10 };
           this.audio.powerup();
+          this.particles.emit('spark', pu.world, { count: 30, color: pu.kind === 'magnet' ? 0x5fd0ff : 0x7dff9a, speed: 3, up: 2, size: 0.3, life: 0.8, gravity: 0 });
           this.ui.toast(pu.kind === 'magnet' ? 'COIN MAGNET' : 'SHIELD');
         }
       }

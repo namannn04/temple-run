@@ -182,6 +182,9 @@ kbd {
   .touch-only {
     display: block;
   }
+  .controls .key-only {
+    display: none;
+  }
 }
 
 .quality {
