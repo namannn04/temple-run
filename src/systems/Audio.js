@@ -266,6 +266,21 @@ export class Audio {
     this.noiseHit({ type: 'bandpass', freq: 1400, sweep: 500, q: 2, attack: 0.02, decay: 0.2, gain: 0.18 });
   }
 
+  zip() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    // metal wheel grabbing the rope, then a long singing whir
+    this.tone({ freq: 1800, type: 'triangle', t, decay: 0.08, gain: 0.15 });
+    this.noiseHit({ t, type: 'bandpass', freq: 900, sweep: 2600, q: 4, attack: 0.3, decay: 2.4, gain: 0.22, verb: true });
+    this.tone({ freq: 320, slide: 520, type: 'sawtooth', t, attack: 0.3, decay: 2.2, gain: 0.03 });
+  }
+
+  zipEnd() {
+    if (!this.ctx) return;
+    this.tone({ freq: 700, slide: 300, type: 'triangle', decay: 0.15, gain: 0.15 });
+    this.noiseHit({ type: 'bandpass', freq: 1500, sweep: 400, q: 2, decay: 0.3, gain: 0.2 });
+  }
+
   stumble() {
     if (!this.ctx) return;
     this.tone({ freq: 90, slide: 40, decay: 0.3, gain: 0.5, verb: true });

@@ -7,6 +7,10 @@ export const LANES = [-LANE_W, 0, LANE_W];
 export const HALF_W = 2.6;
 const ROW = 2; // paving row length along the path
 const CURB_X = HALF_W + 0.35;
+// Zipline geometry: the rope runs from a tall gantry down to a lower one
+const ZIP_TOP = 5.4;
+const ZIP_BOTTOM = 3.0;
+const ZIP_SAG = 0.9;
 
 // Cardinal directions: forward (f) and right (r) vectors on the XZ plane.
 const DIRS = [
@@ -49,19 +53,26 @@ function boxUV(w, h, d, tile = 3) {
  * x = lateral offset (positive = right), y = height above the walkway.
  */
 export class Segment {
-  constructor(index, start, dir, length, turn, prevTurn) {
+  constructor(index, start, dir, length, turn, prevTurn, zipLen = 0) {
     this.index = index;
     this.start = start.clone();
     this.dir = dir;
     this.length = length;
-    this.turn = turn; // 'left' | 'right' at the end
+    this.turn = turn; // 'left' | 'right' | 'zip' at the end
     this.prevTurn = prevTurn;
+    this.afterZip = prevTurn === 'zip';
+    // A zipline carries the runner straight across a chasm to the next segment
+    this.zipLen = turn === 'zip' ? zipLen : 0;
+    this.zipA = length + 0.5;
+    this.zipB = length + this.zipLen - 3;
     this.f = DIRS[dir].f;
     this.r = DIRS[dir].r;
     this.yaw = yawOf(dir);
-    this.dStart = index === 0 ? -30 : HALF_W;
+    // After a zipline there is no shared corner square, so add a landing pad
+    this.dStart = index === 0 ? -30 : this.afterZip ? -HALF_W - 5 : HALF_W;
     this.dEnd = length + HALF_W;
     this.gaps = []; // [d0, d1]
+    this.holes = []; // collapsed parts of the walkway: { d0, d1, x0, x1 }
     this.obstacles = [];
     this.coins = [];
     this.powerups = [];
@@ -69,8 +80,15 @@ export class Segment {
     this.disposables = [];
   }
 
+  /** Where the next segment starts. */
   get end() {
-    return this.start.clone().addScaledVector(this.f, this.length);
+    return this.start.clone().addScaledVector(this.f, this.length + this.zipLen);
+  }
+
+  /** Height of the zipline rope above the walkway at distance d. */
+  ropeY(d) {
+    const t = THREE.MathUtils.clamp((d - this.zipA) / (this.zipB - this.zipA), 0, 1);
+    return THREE.MathUtils.lerp(ZIP_TOP, ZIP_BOTTOM, t) - ZIP_SAG * 4 * t * (1 - t);
   }
 
   toWorld(d, x, y = 0, out = new THREE.Vector3()) {
@@ -87,14 +105,23 @@ export class Segment {
     return false;
   }
 
+  inHole(d, x) {
+    for (const h of this.holes) if (d > h.d0 && d < h.d1 && x > h.x0 && x < h.x1) return true;
+    return false;
+  }
+
+  /** Is one side (-1 / 1) of the walkway collapsed at distance d? */
+  sideBroken(d, side) {
+    return this.inHole(d, side * (HALF_W - 0.3));
+  }
+
   /** Is there walkable floor at local (d, x)? */
   hasFloor(d, x) {
-    if (d < this.dStart - (this.index === 0 ? 0 : HALF_W * 2) || d > this.dEnd) return false;
-    if (Math.abs(x) > HALF_W + 0.2) {
-      // Beyond the side edge only the junction square extends sideways.
-      return false;
-    }
-    return !this.inGap(d);
+    // Before our first slab row the previous segment's corner square takes over
+    const minD = this.index === 0 || this.afterZip ? this.dStart : -HALF_W;
+    if (d < minD || d > this.dEnd) return false;
+    if (Math.abs(x) > HALF_W + 0.2) return false;
+    return !this.inGap(d) && !this.inHole(d, x);
   }
 }
 
@@ -120,6 +147,7 @@ export class Track {
     this.rnd = mulberry32(seed);
     this.nextIndex = 0;
     this.difficulty = 0;
+    this.lastZip = 0;
     this.ensureAhead(null, 0);
   }
 
@@ -138,11 +166,12 @@ export class Track {
     if (currentSeg) {
       const i = this.segments.indexOf(currentSeg);
       ahead = currentSeg.length - distanceInSeg;
-      for (let k = i + 1; k < this.segments.length; k++) ahead += this.segments[k].length;
+      ahead += currentSeg.zipLen;
+      for (let k = i + 1; k < this.segments.length; k++) ahead += this.segments[k].length + this.segments[k].zipLen;
     }
     while (!currentSeg ? this.segments.length < 4 : ahead < need) {
       const s = this.generateSegment();
-      ahead += s.length;
+      ahead += s.length + s.zipLen;
       if (!currentSeg && this.segments.length >= 4) break;
     }
     // Drop segments well behind the runner.
@@ -164,7 +193,7 @@ export class Track {
       prevTurn = null;
     } else {
       start = prev.end;
-      dir = (prev.dir + (prev.turn === 'right' ? 1 : 3)) % 4;
+      dir = prev.turn === 'zip' ? prev.dir : (prev.dir + (prev.turn === 'right' ? 1 : 3)) % 4;
       prevTurn = prev.turn;
     }
     // Never head "backwards" (dir 2) so the path can't loop into itself.
@@ -173,8 +202,16 @@ export class Track {
     else if (dir === 3) turn = 'right';
     else turn = rnd() < 0.5 ? 'left' : 'right';
 
+    // Every so often the walkway ends at a cliff and a zipline takes over
+    let zipLen = 0;
+    if (index > 2 && prevTurn !== 'zip' && index - this.lastZip >= 4 && rnd() < 0.4) {
+      turn = 'zip';
+      zipLen = Math.round(46 + rnd() * 22);
+      this.lastZip = index;
+    }
+
     const length = index === 0 ? 110 : Math.round((58 + rnd() * 46) / ROW) * ROW;
-    const seg = new Segment(index, start, dir, length, turn, prevTurn);
+    const seg = new Segment(index, start, dir, length, turn, prevTurn, zipLen);
     this.layoutGameplay(seg);
     this.buildGeometry(seg);
     this.segments.push(seg);
@@ -189,7 +226,8 @@ export class Track {
     const rnd = this.rnd;
     const diff = Math.min(1, seg.index / 14); // ramps up over the first ~14 segments
     let d = seg.index === 0 ? 46 : 16;
-    const endLimit = seg.length - HALF_W - 14;
+    // Leave a clean run-up to the zipline gantry
+    const endLimit = seg.length - HALF_W - (seg.turn === 'zip' ? 24 : 14);
     const laneX = (i) => LANES[i];
 
     const addCoinRun = (from, to, lane, arc = null) => {
@@ -207,8 +245,8 @@ export class Track {
 
     while (d < endLimit) {
       const roll = rnd();
-      const types = ['log', 'arch', 'gap', 'block', 'fire', 'block2'];
-      const weights = [1, 1, 0.7 + diff * 0.5, 1.1, 0.4 + diff * 0.8, 0.2 + diff * 0.9];
+      const types = ['log', 'arch', 'gap', 'block', 'fire', 'block2', 'broken'];
+      const weights = [1, 1, 0.7 + diff * 0.5, 1.1, 0.4 + diff * 0.8, 0.2 + diff * 0.9, seg.index > 0 ? 0.6 + diff * 0.7 : 0];
       let acc = 0;
       const total = weights.reduce((a, b) => a + b, 0);
       let type = types[0];
@@ -255,6 +293,28 @@ export class Track {
           addCoinRun(d - 7, d + 5, open);
           break;
         }
+        case 'broken': {
+          // Part of the walkway has collapsed into the abyss: stay on what's left
+          const len = ROW * (4 + ((rnd() * (3 + diff * 4)) | 0));
+          const b0 = Math.round(d / ROW) * ROW;
+          const kinds = diff < 0.3 ? ['L1', 'R1', 'C'] : ['L1', 'R1', 'L2', 'R2', 'C', 'L2', 'R2'];
+          const kind = kinds[(rnd() * kinds.length) | 0];
+          const W = HALF_W + 1;
+          const shapes = {
+            L1: { holes: [[-W, -1.2]], safe: [1, 2] },
+            R1: { holes: [[1.2, W]], safe: [0, 1] },
+            L2: { holes: [[-W, 0.12]], safe: [2] },
+            R2: { holes: [[-0.12, W]], safe: [0] },
+            C: { holes: [[-W, -1.2], [1.2, W]], safe: [1] },
+          };
+          const shape = shapes[kind];
+          for (const [x0, x1] of shape.holes) seg.holes.push({ d0: b0, d1: b0 + len, x0, x1 });
+          const lanes = [0, 1, 2].filter((l) => !shape.safe.includes(l));
+          seg.obstacles.push({ type: 'broken', d0: b0, d1: b0 + len, lanes, safe: shape.safe });
+          addCoinRun(b0 - 3, b0 + len + 2, shape.safe[(rnd() * shape.safe.length) | 0]);
+          d = b0 + len;
+          break;
+        }
         case 'fire': {
           const lane = (rnd() * 3) | 0;
           seg.obstacles.push({ type: 'fire', d0: d - 0.7, d1: d + 0.7, lanes: [lane] });
@@ -273,7 +333,16 @@ export class Track {
     }
 
     // A coin trail through the corner, hugging the inside lane, rewards turning.
-    if (seg.index > 0 && rnd() < 0.5) addCoinRun(seg.length - HALF_W - 12, seg.length - HALF_W - 2, 1);
+    if (seg.index > 0 && seg.turn !== 'zip' && rnd() < 0.5) addCoinRun(seg.length - HALF_W - 12, seg.length - HALF_W - 2, 1);
+
+    // Coins hanging along the zipline, weaving so you have to swing for them
+    if (seg.turn === 'zip') {
+      const phase = rnd() * Math.PI * 2;
+      for (let cd = seg.zipA + 5; cd < seg.zipB - 4; cd += 1.9) {
+        const x = Math.round(Math.sin(cd * 0.12 + phase) * 1.4) * 0.9;
+        seg.coins.push({ d: cd, x, y: seg.ropeY(cd) - 1.35, taken: false, flyT: null });
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -293,12 +362,19 @@ export class Track {
     // Two texture variants, each its own instanced mesh
     const slabMeshes = A.mat.slabs.map((mat) => new THREE.InstancedMesh(A.geo.slab, mat, rows.length * 4));
     const counts = slabMeshes.map(() => 0);
+    const debris = [];
     for (const d of rows) {
       for (const x of slabX) {
-        // Slabs at a gap's lip are cracked and sunken
+        if (seg.inHole(d, x)) {
+          // Collapsed: a few broken chunks still cling to the edge, the rest is gone
+          if (rnd() < 0.3) debris.push({ d: d + (rnd() - 0.5) * 1.5, x });
+          continue;
+        }
+        // Slabs at a gap's lip or a collapse line are cracked and sunken
         const nearGap = seg.gaps.some((gp) => Math.abs(d - gp[0]) < ROW || Math.abs(d - gp[1]) < ROW);
-        const sink = nearGap ? rnd() * 0.08 : rnd() * 0.025;
-        const tilt = nearGap ? 0.05 : 0.012;
+        const nearHole = seg.inHole(d, x - 1.3) || seg.inHole(d, x + 1.3) || seg.inHole(d - ROW, x) || seg.inHole(d + ROW, x);
+        const sink = nearGap || nearHole ? rnd() * 0.08 : rnd() * 0.025;
+        const tilt = nearGap || nearHole ? 0.06 : 0.012;
         seg.toWorld(d, x, -0.2 - sink, _p);
         _e.set((rnd() - 0.5) * tilt, seg.yaw + (rnd() < 0.5 ? 0 : Math.PI), (rnd() - 0.5) * tilt);
         _q.setFromEuler(_e);
@@ -321,8 +397,23 @@ export class Track {
       seg.disposables.push(mesh);
     });
 
+    // Broken slab pieces dangling below a collapse, tilted into the void
+    if (debris.length) {
+      const chunks = new THREE.InstancedMesh(A.geo.slab, A.mat.slabs[0], debris.length);
+      debris.forEach((c, i) => {
+        seg.toWorld(c.d, c.x + Math.sign(c.x) * 0.2, -0.9 - rnd() * 1.6, _p);
+        _e.set((rnd() - 0.5) * 1.2, seg.yaw + rnd(), Math.sign(c.x) * (0.5 + rnd() * 0.8));
+        _q.setFromEuler(_e);
+        _m.compose(_p, _q, _s.set(0.5 + rnd() * 0.4, 1, 0.4 + rnd() * 0.4));
+        chunks.setMatrixAt(i, _m);
+      });
+      chunks.castShadow = true;
+      g.add(chunks);
+      seg.disposables.push(chunks);
+    }
+
     // ---- Curbs, columns, torches on both sides ----
-    const turnSide = seg.turn === 'right' ? 1 : -1;
+    const turnSide = seg.turn === 'right' ? 1 : seg.turn === 'left' ? -1 : 0;
     const prevSide = seg.prevTurn === 'right' ? 1 : seg.prevTurn === 'left' ? -1 : 0;
     const curbs = [];
     const columns = [];
@@ -334,6 +425,8 @@ export class Track {
         if (side === turnSide && d > seg.length - HALF_W) continue;
         // And where the previous segment joins us
         if (side === prevSide && d < HALF_W) continue;
+        // Nothing stands on a collapsed edge
+        if (seg.sideBroken(d, side)) continue;
         const isColumnRow = Math.abs(((d - seg.dStart) % 10) - 5) < 0.01 && d > 4 && d < seg.length - 6;
         if (isColumnRow) {
           columns.push({ d, side, broken: rnd() < 0.25 });
@@ -422,24 +515,36 @@ export class Track {
     }
 
     // ---- Foundations: a thick masonry deck and huge columns into the abyss ----
-    const runs = [];
-    let runStart = null;
-    let last = null;
-    for (const d of rows) {
-      if (runStart === null) runStart = d;
-      else if (d - last > ROW + 0.01) {
-        runs.push([runStart, last]);
-        runStart = d;
+    // Each row's intact width, so the deck follows collapses as well as gaps
+    const span = (d) => {
+      let x0 = -HALF_W - 0.8;
+      let x1 = HALF_W + 0.8;
+      for (const h of seg.holes) {
+        if (d <= h.d0 || d >= h.d1) continue;
+        if (h.x0 < -HALF_W) x0 = Math.max(x0, h.x1 < -1 ? -1.3 : 0);
+        if (h.x1 > HALF_W) x1 = Math.min(x1, h.x0 > 1 ? 1.3 : 0);
       }
-      last = d;
+      return [x0, x1];
+    };
+    const runs = [];
+    let run = null;
+    for (const d of rows) {
+      const [x0, x1] = span(d);
+      if (run && d - run.last <= ROW + 0.01 && run.x0 === x0 && run.x1 === x1) {
+        run.last = d;
+      } else {
+        if (run) runs.push(run);
+        run = { first: d, last: d, x0, x1 };
+      }
     }
-    if (runStart !== null) runs.push([runStart, last]);
-    for (const [a, b] of runs) {
-      const len = b - a + ROW;
-      const deckGeo = boxUV(HALF_W * 2 + 1.6, 3.2, len, 3);
+    if (run) runs.push(run);
+    for (const r of runs) {
+      const len = r.last - r.first + ROW;
+      const w = r.x1 - r.x0 - 0.05;
+      const deckGeo = boxUV(w, 3.2, len, 3);
       seg.disposables.push(deckGeo);
       const deck = new THREE.Mesh(deckGeo, A.mat.support);
-      seg.toWorld((a + b) / 2, 0, -2.0, deck.position);
+      seg.toWorld((r.first + r.last) / 2, (r.x0 + r.x1) / 2, -2.0, deck.position);
       deck.rotation.y = seg.yaw;
       deck.receiveShadow = true;
       g.add(deck);
@@ -447,7 +552,8 @@ export class Track {
     // Colossal support columns
     const supports = [];
     for (let d = seg.dStart + 6; d < seg.dEnd - 2; d += 14 + rnd() * 6) {
-      if (!seg.inGap(d) && !seg.inGap(d - 2) && !seg.inGap(d + 2)) supports.push(d);
+      const intact = (dd) => !seg.inGap(dd) && seg.holes.every((h) => dd <= h.d0 - 2 || dd >= h.d1 + 2);
+      if (intact(d) && intact(d - 2) && intact(d + 2)) supports.push(d);
     }
     if (supports.length) {
       const colGeo = boxUV(3.2, 60, 3.2, 4);
@@ -463,9 +569,65 @@ export class Track {
       seg.disposables.push(sup);
     }
 
+    if (seg.turn === 'zip') this.buildZipline(seg, rnd);
     this.buildObstacles(seg, rnd);
     this.buildCoins(seg);
     this.buildScenery(seg, rnd, turnSide, prevSide);
+  }
+
+  /** Timber gantries at both cliffs with a sagging rope between them. */
+  buildZipline(seg, rnd) {
+    const A = this.assets;
+    const g = seg.group;
+    const gantry = (d, height, beamY) => {
+      for (const side of [-1, 1]) {
+        const post = new THREE.Mesh(A.geo.post, A.mat.timber);
+        post.scale.set(1, height, 1);
+        seg.toWorld(d, side * 2.1, 0, post.position);
+        post.rotation.set(0, rnd() * 3, side * 0.04);
+        post.castShadow = post.receiveShadow = true;
+        g.add(post);
+        // diagonal brace
+        const brace = new THREE.Mesh(A.geo.post, A.mat.timber);
+        brace.scale.set(0.6, height * 0.5, 0.6);
+        seg.toWorld(d + 0.9, side * 2.1, 0, brace.position);
+        brace.rotation.set(0.45, seg.yaw, 0, 'YXZ');
+        brace.castShadow = true;
+        g.add(brace);
+      }
+      const beam = new THREE.Mesh(A.geo.post, A.mat.timber);
+      beam.scale.set(0.85, 5.0, 0.85);
+      seg.toWorld(d, -2.5, beamY, beam.position);
+      beam.rotation.set(0, seg.yaw, -Math.PI / 2, 'YXZ');
+      beam.castShadow = true;
+      g.add(beam);
+      // rope lashing blocks where the line hangs from the beam
+      const block = new THREE.Mesh(A.geo.pulley, A.mat.iron);
+      seg.toWorld(d, 0, beamY - 0.18, block.position);
+      block.rotation.y = seg.yaw;
+      g.add(block);
+    };
+    gantry(seg.length + 0.2, 6.1, 5.75);
+    gantry(seg.zipB + 0.8, 3.6, 3.35);
+
+    // The rope itself: a thin tube along the sagging curve
+    const pts = [];
+    for (let i = 0; i <= 48; i++) {
+      const d = THREE.MathUtils.lerp(seg.length + 0.2, seg.zipB + 0.8, i / 48);
+      pts.push(seg.toWorld(d, 0, seg.ropeY(d) + 0.17));
+    }
+    const ropeGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 96, 0.035, 6, false);
+    seg.disposables.push(ropeGeo);
+    const rope = new THREE.Mesh(ropeGeo, A.mat.rope);
+    rope.castShadow = true;
+    g.add(rope);
+
+    // A worn plank "ZIP" marker so the player can read what's coming
+    const sign = new THREE.Mesh(A.geo.sign, A.mat.timber);
+    seg.toWorld(seg.length - 3, 2.9, 1.3, sign.position);
+    sign.rotation.set(0, seg.yaw + 0.3, 0.08);
+    sign.castShadow = true;
+    g.add(sign);
   }
 
   buildObstacles(seg, rnd) {
@@ -654,6 +816,7 @@ export class Track {
       for (const side of [-1, 1]) {
         if (side === turnSide && d > seg.length - HALF_W) continue;
         if (side === prevSide && d < HALF_W) continue;
+        if (seg.sideBroken(d, side)) continue;
         const r = rnd();
         // inside the curb, hugging the edge (never in a running lane)
         if (r < 0.35) tufts.push({ d, x: side * (HALF_W - 0.12 - rnd() * 0.18), y: 0, s: 0.55 + rnd() * 0.4 });
@@ -688,7 +851,7 @@ export class Track {
     const vines = [];
     for (let d = seg.dStart + 2; d < seg.dEnd - 2; d += 1.5 + rnd() * 3) {
       if (seg.inGap(d)) continue;
-      for (const side of [-1, 1]) if (rnd() < 0.45) vines.push({ d, side });
+      for (const side of [-1, 1]) if (rnd() < 0.45 && !seg.sideBroken(d, side)) vines.push({ d, side });
     }
     if (vines.length) {
       const vm = new THREE.InstancedMesh(A.geo.vine, A.mat.vine, vines.length);

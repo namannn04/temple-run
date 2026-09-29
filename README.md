@@ -9,6 +9,10 @@ arches while a pack of demon monkeys chases you.
 
 - **Endless procedural temple**: walkway segments with 90° corners, chasms, fallen logs, low
   stone arches, broken pillars and fire vents. Difficulty and speed ramp up the longer you run.
+- **Ziplines**: some walkways end at a cliff. Grab the handle and ride the sagging rope across the
+  chasm, swinging left and right to grab coins. The demons can't follow, but they do catch up later.
+- **Collapsed walkways**: stretches where one or two lanes have fallen into the abyss. Stay on the
+  narrow strip that's left or fall.
 - **Realistic look**: PBR materials with procedurally generated albedo, normal and roughness maps
   (weathered, pitted, lichen-covered slabs polished in the middle by centuries of feet), a physically
   based sky with drifting clouds, image-based lighting, golden-hour sun shadows, screen-space god

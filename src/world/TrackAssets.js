@@ -219,6 +219,8 @@ export class TrackAssets {
         0.3
       ),
       iron: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.6, metalness: 0.85 }),
+      timber: new THREE.MeshStandardMaterial({ ...T.bark, color: 0x8a7258, roughness: 0.9 }),
+      rope: new THREE.MeshStandardMaterial({ color: 0x5b4632, roughness: 1 }),
       ember: new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff5a10, emissiveIntensity: 5 }),
       flame: flameMaterial(T.glow),
       gold: new THREE.MeshStandardMaterial({ color: 0xffc94a, metalness: 1, roughness: 0.22, emissive: 0x4a2c00, emissiveIntensity: 0.6 }),
@@ -241,6 +243,9 @@ export class TrackAssets {
       block: new RoundedBoxGeometry(1.3, 2.4, 1.3, 3, 0.12),
       grate: new THREE.BoxGeometry(1.4, 0.08, 1.4),
       coin: new THREE.CylinderGeometry(0.34, 0.34, 0.07, 28),
+      post: new THREE.CylinderGeometry(0.15, 0.2, 1, 9).translate(0, 0.5, 0),
+      pulley: new THREE.CylinderGeometry(0.14, 0.14, 0.16, 12).rotateZ(Math.PI / 2),
+      sign: new RoundedBoxGeometry(1.2, 0.5, 0.08, 2, 0.03),
     };
     // Rough up the rubble so it looks like broken stone
     this.geo.rubble.deleteAttribute('normal');

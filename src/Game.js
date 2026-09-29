@@ -184,6 +184,7 @@ export class Game {
     this.shieldInvuln = 0;
     this.overTimer = 0;
     this.hintShown = false;
+    this.demonReturnAt = null;
     this.particles.clear();
     this.rig.mode = 'menu';
     this.rig.snap(this.player);
@@ -313,7 +314,16 @@ export class Game {
     }
 
     if (playing || dying) {
-      if (player.state !== 'falling') this.demons.record(player.worldPos, player.heading);
+      if (player.state !== 'falling' && !player.zipping) this.demons.record(player.worldPos, player.heading);
+      // After a zipline the pack finds another way across and rejoins the hunt
+      if (this.demonReturnAt !== null && this.distance > this.demonReturnAt && player.grounded) {
+        this.demonReturnAt = null;
+        const seg = player.seg;
+        this.demons.reset();
+        for (let d = Math.max(seg.dStart + 1, player.d - 25); d <= player.d; d += 1) this.demons.record(seg.toWorld(d, 0, 0), seg.yaw);
+        this.demons.gap = 15;
+        this.demons.visible = true;
+      }
       const pounce = dying && player.deathType === 'caught';
       const closeness = dying ? (player.state === 'falling' ? 0.6 : 0.97) : 1 - this.chaseGap;
       this.demons.update(dt, playing ? this.speed : 4, closeness, this.runTime, pounce);
@@ -349,6 +359,18 @@ export class Game {
       this.audio.land();
       this.particles.emit('dust', this.player.worldPos, { count: 14, color: 0xc9b896, speed: 2.4, up: 0.8, size: 0.7, life: 0.9, spread: 0.5 });
     } else if (e.type === 'turn') this.audio.turn();
+    else if (e.type === 'zipStart') {
+      // The demons can't follow across the rope
+      this.audio.zip();
+      this.ui.toast('ZIPLINE!', 1100);
+      this.rig.addShake(0.15);
+      this.chaseGap = 1;
+      this.demons.visible = false;
+      this.demonReturnAt = null;
+    } else if (e.type === 'zipEnd') {
+      this.audio.zipEnd();
+      this.demonReturnAt = this.distance + 30;
+    }
     else if (e.type === 'step') {
       this.audio.step();
       if (Math.random() < 0.5) this.particles.emit('dust', this.player.worldPos, { count: 2, color: 0xc9b896, speed: 0.6, up: 0.4, size: 0.45, life: 0.6 });

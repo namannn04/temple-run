@@ -57,12 +57,16 @@ export class CameraRig {
     } else {
       this.yaw += shortestAngle(this.yaw, player.heading) * k(5.5);
       const falling = player.state === 'falling';
-      if (!falling) this.followY = damp(this.followY, p.y * 0.55, instant ? 1e9 : 6, dt);
+      // On the zipline, drift out to the side so the rope doesn't hide the runner
+      this.zipMix = damp(this.zipMix || 0, player.zipping ? 1 : 0, 2.5, dt || 1);
+      const followK = THREE.MathUtils.lerp(0.55, 0.9, this.zipMix);
+      if (!falling) this.followY = damp(this.followY, p.y * followK, instant ? 1e9 : 6, dt);
       const fx = -Math.sin(this.yaw);
       const fz = -Math.cos(this.yaw);
       const dist = 5.4;
       const height = 3.05;
-      const target = new THREE.Vector3(p.x - fx * dist, this.followY + height, p.z - fz * dist);
+      const side = this.zipMix * 2.2;
+      const target = new THREE.Vector3(p.x - fx * dist - fz * side, this.followY + height + this.zipMix * 0.6, p.z - fz * dist + fx * side);
       if (player.state === 'dead') {
         target.set(p.x - fx * 3.8, this.followY + 3.4, p.z - fz * 3.8);
       }
