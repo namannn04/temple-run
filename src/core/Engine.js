@@ -33,7 +33,8 @@ export class Engine {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 900);
 
-    this.clock = new THREE.Clock();
+    this.timer = new THREE.Timer();
+    this.timer.connect(document);
     this.time = 0;
     this.shake = 0;
 
@@ -46,7 +47,7 @@ export class Engine {
     this.quality = QUALITY[this.qualityName];
     const q = this.quality;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
-    this.renderer.shadowMap.type = q.shadowSoft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.buildComposer();
     this.resize();
   }
@@ -63,7 +64,7 @@ export class Engine {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
     if (q.bloom) {
-      this.bloom = new UnrealBloomPass(size, 0.35, 0.6, 0.92);
+      this.bloom = new UnrealBloomPass(size, 0.28, 0.55, 1.0);
       this.composer.addPass(this.bloom);
     } else {
       this.bloom = null;
