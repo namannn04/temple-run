@@ -1,0 +1,21 @@
+{
+  "name": "temple-run",
+  "version": "1.0.0",
+  "description": "A realistic, smooth 3D endless runner inspired by Temple Run, built with Three.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": ["threejs", "game", "endless-runner", "temple-run", "webgl"],
+  "author": "namannn04",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}

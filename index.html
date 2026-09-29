@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0b0a08" />
+    <title>Temple Run — Escape the Ruins</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Inter:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <!-- Loading -->
+    <div id="loader" class="screen visible">
+      <div class="loader-inner">
+        <h1 class="title">TEMPLE RUN</h1>
+        <div class="bar"><div id="loader-fill"></div></div>
+        <p id="loader-text">Awakening the temple…</p>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div class="hud-left">
+        <div class="stat score"><span id="score">0</span></div>
+        <div class="stat small"><span id="distance">0</span> m</div>
+      </div>
+      <div class="hud-right">
+        <div class="stat coins"><i class="coin-icon"></i><span id="coins">0</span></div>
+        <div class="stat small multiplier">x<span id="multiplier">1</span></div>
+      </div>
+      <div id="powerups"></div>
+      <button id="pause-btn" class="icon-btn" aria-label="Pause">❚❚</button>
+    </div>
+
+    <div id="toast"></div>
+    <div id="danger"></div>
+
+    <!-- Main menu -->
+    <div id="menu" class="screen">
+      <div class="panel">
+        <h1 class="title">TEMPLE RUN</h1>
+        <p class="subtitle">Steal the idol. Outrun the demons.</p>
+        <button id="play-btn" class="btn primary">RUN</button>
+        <div class="best">Best: <span id="best-score">0</span></div>
+        <div class="controls">
+          <div><kbd>←</kbd><kbd>→</kbd> / <kbd>A</kbd><kbd>D</kbd> Turn at corners &amp; switch lanes</div>
+          <div><kbd>↑</kbd> / <kbd>W</kbd> / <kbd>Space</kbd> Jump</div>
+          <div><kbd>↓</kbd> / <kbd>S</kbd> Slide</div>
+          <div class="touch-only">Swipe to move · Tap to jump</div>
+        </div>
+        <label class="quality">
+          Graphics
+          <select id="quality">
+            <option value="high">Ultra</option>
+            <option value="medium">Balanced</option>
+            <option value="low">Performance</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- Pause -->
+    <div id="pause" class="screen">
+      <div class="panel">
+        <h2 class="title small">PAUSED</h2>
+        <button id="resume-btn" class="btn primary">RESUME</button>
+        <button id="quit-btn" class="btn">MAIN MENU</button>
+      </div>
+    </div>
+
+    <!-- Game over -->
+    <div id="gameover" class="screen">
+      <div class="panel">
+        <h2 class="title small" id="death-reason">YOU DIED</h2>
+        <div class="results">
+          <div><span>Score</span><b id="final-score">0</b></div>
+          <div><span>Distance</span><b id="final-distance">0 m</b></div>
+          <div><span>Coins</span><b id="final-coins">0</b></div>
+        </div>
+        <div id="new-best" class="new-best hidden">NEW BEST!</div>
+        <button id="retry-btn" class="btn primary">RUN AGAIN</button>
+        <button id="menu-btn" class="btn">MAIN MENU</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
