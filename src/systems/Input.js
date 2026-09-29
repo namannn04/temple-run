@@ -15,6 +15,7 @@ export class Input {
         ArrowDown: 'slide', KeyS: 'slide',
         Escape: 'pause', KeyP: 'pause',
         Enter: 'confirm',
+        KeyM: 'mute',
       };
       const action = map[e.code];
       if (action) {

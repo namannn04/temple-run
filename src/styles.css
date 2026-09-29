@@ -251,7 +251,7 @@ kbd {
 
 .hud-right {
   align-items: flex-end;
-  margin-right: 56px;
+  margin-right: 110px;
 }
 
 .stat {
@@ -290,11 +290,16 @@ kbd {
   color: var(--gold) !important;
 }
 
-#pause-btn {
+#pause-btn,
+#mute-btn {
   position: absolute;
   top: max(16px, env(safe-area-inset-top));
   right: 16px;
   pointer-events: auto;
+}
+
+#mute-btn {
+  right: 68px;
 }
 
 .icon-btn {

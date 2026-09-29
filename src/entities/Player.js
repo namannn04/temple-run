@@ -187,6 +187,12 @@ export class Player {
 
     if (this.state === 'run') {
       this.stepRun(dt, speed, track, events);
+      // Footstep events, twice per run cycle
+      const run = this.actions.run;
+      const phase = (run.time / run.getClip().duration) * 2;
+      const stepIdx = Math.floor(phase);
+      if (stepIdx !== this.lastStep && this.grounded && !this.sliding) events.push({ type: 'step' });
+      this.lastStep = stepIdx;
     } else if (this.state === 'falling' || this.state === 'dead') {
       this.stepDeath(dt, speed);
     }

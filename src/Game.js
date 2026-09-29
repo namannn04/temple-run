@@ -11,6 +11,7 @@ import { Demons } from './entities/Demons.js';
 import { CameraRig } from './systems/CameraRig.js';
 import { Input } from './systems/Input.js';
 import { UI } from './ui/UI.js';
+import { Audio } from './systems/Audio.js';
 
 const BASE_SPEED = 10.5;
 const MAX_SPEED = 25;
@@ -38,6 +39,7 @@ export class Game {
   constructor(canvas) {
     this.canvas = canvas;
     this.ui = new UI();
+    this.audio = new Audio();
     this.state = 'loading';
     this.best = store.get(STORAGE_KEY, 0);
     this.quality = store.get('temple-run-quality', window.devicePixelRatio > 2 && innerWidth < 900 ? 'medium' : 'high');
@@ -87,16 +89,23 @@ export class Game {
 
   bindInput() {
     const inp = this.input;
+    const unlock = () => this.audio.unlock();
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
     inp.on('left', () => this.state === 'playing' && this.player.left());
     inp.on('right', () => this.state === 'playing' && this.player.right());
+    const jump = () => {
+      if (this.state === 'playing' && this.player.jump()) this.audio.jump();
+    };
     inp.on('jump', () => {
-      if (this.state === 'playing') this.player.jump();
-      else if (this.state === 'menu') this.startRun();
+      if (this.state === 'menu') this.startRun();
+      else jump();
     });
-    inp.on('tap', () => {
-      if (this.state === 'playing') this.player.jump();
+    inp.on('tap', jump);
+    inp.on('slide', () => {
+      if (this.state === 'playing' && this.player.slide()) this.audio.slide();
     });
-    inp.on('slide', () => this.state === 'playing' && this.player.slide());
+    inp.on('mute', () => this.toggleMute());
     inp.on('pause', () => {
       if (this.state === 'playing') this.pause();
       else if (this.state === 'paused') this.resume();
@@ -119,6 +128,8 @@ export class Game {
     on('quit-btn', () => this.toMenu(true));
     on('resume-btn', () => this.resume());
     on('pause-btn', () => this.pause());
+    on('mute-btn', () => this.toggleMute());
+    this.updateMuteIcon();
     const q = this.ui.el.quality;
     q.value = this.quality;
     q.addEventListener('change', () => {
@@ -129,6 +140,15 @@ export class Game {
       this.env.sun.shadow.map?.dispose();
       this.env.sun.shadow.map = null;
     });
+  }
+
+  toggleMute() {
+    this.audio.toggleMute();
+    this.updateMuteIcon();
+  }
+
+  updateMuteIcon() {
+    document.getElementById('mute-btn').textContent = this.audio.muted ? '🔇' : '🔊';
   }
 
   // ---------------------------------------------------------------------------
@@ -172,6 +192,9 @@ export class Game {
     this.rig.mode = 'play';
     this.player.start();
     this.demons.visible = true;
+    this.audio.unlock();
+    this.audio.startMusic();
+    this.audio.roar(0.7);
     this.ui.show('hud');
     this.ui.toast('RUN!', 900);
   }
@@ -200,6 +223,7 @@ export class Game {
     this.overTimer = 0;
     this.deathReason = reason;
     this.rig.addShake(0.8);
+    this.audio.death(this.player.deathType);
   }
 
   finishGameOver() {
@@ -271,6 +295,11 @@ export class Game {
     }
 
     this.track.update(dt);
+    this.audio.update(dt, {
+      speed: this.speed,
+      danger: Math.max(0, 1 - this.chaseGap * 1.3),
+      running: playing,
+    });
     this.rig.baseFov = this.engine.camera.aspect < 1 ? 75 : 62;
     this.rig.update(dt, player, this.speed);
     this.env.update(dt, player.worldPos);
@@ -279,7 +308,11 @@ export class Game {
 
   onPlayerEvent(e) {
     if (e.type === 'fall') this.gameOver('YOU FELL');
-    else if (e.type === 'land') this.rig.addShake(0.05);
+    else if (e.type === 'land') {
+      this.rig.addShake(0.05);
+      this.audio.land();
+    } else if (e.type === 'turn') this.audio.turn();
+    else if (e.type === 'step') this.audio.step();
   }
 
   // ---------------------------------------------------------------------------
@@ -332,6 +365,7 @@ export class Game {
       delete this.powerups.shield;
       this.shieldInvuln = 1.0;
       this.rig.addShake(0.4);
+      this.audio.shieldBreak();
       this.ui.toast('SHIELD BROKEN');
       return true;
     }
@@ -342,6 +376,7 @@ export class Game {
     const now = this.runTime;
     this.player.stumble();
     this.rig.addShake(0.35);
+    this.audio.stumble();
     if (now - this.lastStumble < 7) {
       this.player.die('caught');
       this.gameOver('CAUGHT BY DEMONS');
@@ -376,7 +411,7 @@ export class Game {
           c.flyT = 0;
           this.coins++;
           this.score += 10 * this.multiplier;
-          this.onCoin?.();
+          this.audio.coin();
         }
       }
       for (const pu of seg.powerups) {
@@ -384,6 +419,7 @@ export class Game {
         if (pu.world.distanceTo(center) < 1.2) {
           pu.taken = true;
           this.powerups[pu.kind] = { t: 10, max: 10 };
+          this.audio.powerup();
           this.ui.toast(pu.kind === 'magnet' ? 'COIN MAGNET' : 'SHIELD');
         }
       }
