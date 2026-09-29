@@ -111,42 +111,71 @@ export class Environment {
   }
 
   buildMountains() {
+    // A ring of ridged, noise-displaced mountains around the horizon.
     const rnd = mulberry32(99);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x55604a,
-      roughness: 1,
-      map: this.textures.cliff.map,
-      normalMap: this.textures.cliff.normalMap,
-      flatShading: false,
-    });
-    const mountains = new THREE.Group();
-    const count = 28;
-    for (let i = 0; i < count; i++) {
-      const geo = new THREE.ConeGeometry(1, 1, 24, 12, true);
-      const pos = geo.attributes.position;
-      const v = new THREE.Vector3();
-      for (let j = 0; j < pos.count; j++) {
-        v.fromBufferAttribute(pos, j);
-        const hN = v.y + 0.5; // 0 bottom .. 1 top
-        const a = Math.atan2(v.z, v.x);
-        const n = Math.sin(a * 3 + i) * 0.12 + Math.sin(a * 7 + i * 2) * 0.06 + Math.sin(a * 13) * 0.03;
-        const r = Math.hypot(v.x, v.z) * (1 + n * (1 - hN * 0.5));
-        v.x = Math.cos(a) * r;
-        v.z = Math.sin(a) * r;
-        v.y += Math.sin(a * 5 + i) * 0.04 * hN;
-        pos.setXYZ(j, v.x, v.y, v.z);
+    const perm = Array.from({ length: 512 }, () => rnd());
+    const hash = (i, j) => perm[((i * 73856093) ^ (j * 19349663)) & 511];
+    const noise = (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+      return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+    };
+    const ridged = (x, y) => {
+      let sum = 0, amp = 0.6, f = 1;
+      for (let o = 0; o < 5; o++) {
+        const n = 1 - Math.abs(noise(x * f, y * f) * 2 - 1);
+        sum += Math.pow(n, 1.6) * amp;
+        amp *= 0.45;
+        f *= 2.0;
       }
-      geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, mat);
-      const ang = (i / count) * Math.PI * 2 + rnd() * 0.2;
-      const dist = 380 + rnd() * 140;
-      const h = 90 + rnd() * 170;
-      const w = 90 + rnd() * 90;
-      m.scale.set(w, h, w * (0.8 + rnd() * 0.4));
-      m.position.set(Math.cos(ang) * dist, h / 2 - 70, Math.sin(ang) * dist);
-      m.rotation.y = rnd() * Math.PI;
-      mountains.add(m);
+      return sum;
+    };
+
+    const seg = 480;
+    const rings = 48;
+    const rMin = 330;
+    const rMax = 760;
+    const positions = [];
+    const colors = [];
+    const indices = [];
+    const low = new THREE.Color(0x3d4a2c);
+    const mid = new THREE.Color(0x59604f);
+    const high = new THREE.Color(0x8a8a82);
+    const col = new THREE.Color();
+    for (let j = 0; j <= rings; j++) {
+      const t = j / rings;
+      const r = rMin + (rMax - rMin) * t;
+      for (let i = 0; i <= seg; i++) {
+        const a = (i / seg) * Math.PI * 2;
+        // sample noise on a circle so the ring wraps seamlessly
+        const nx = Math.cos(a) * 4 + t * 2.2;
+        const ny = Math.sin(a) * 4 + t * 2.2;
+        const profile = Math.sin(Math.min(1, t * 1.25) * Math.PI) * 0.85 + 0.15;
+        const h = ridged(nx, ny) * profile * 230 - 85;
+        positions.push(Math.cos(a) * r, h, Math.sin(a) * r);
+        const k = THREE.MathUtils.clamp((h + 60) / 220, 0, 1);
+        if (k < 0.5) col.copy(low).lerp(mid, k * 2);
+        else col.copy(mid).lerp(high, (k - 0.5) * 2);
+        colors.push(col.r, col.g, col.b);
+      }
     }
+    for (let j = 0; j < rings; j++) {
+      for (let i = 0; i < seg; i++) {
+        const a = j * (seg + 1) + i;
+        const b = a + seg + 1;
+        indices.push(a, b, a + 1, b, b + 1, a + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+    const mountains = new THREE.Mesh(geo, mat);
+    mountains.frustumCulled = false;
     this.mountains = mountains;
     this.group.add(mountains);
   }
@@ -160,7 +189,7 @@ export class Environment {
       new THREE.MeshStandardMaterial({ map: tex, roughness: 1, color: 0x9aa58a })
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -55;
+    floor.position.y = -75;
     this.floorTex = tex;
     this.floor = floor;
     this.group.add(floor);

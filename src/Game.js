@@ -5,6 +5,7 @@ import { createTextures } from './world/Textures.js';
 import { Environment } from './world/Environment.js';
 import { TrackAssets } from './world/TrackAssets.js';
 import { Track, LANES } from './world/Track.js';
+import { Forest } from './world/Forest.js';
 import { Player } from './entities/Player.js';
 import { CameraRig } from './systems/CameraRig.js';
 import { Input } from './systems/Input.js';
@@ -54,6 +55,7 @@ export class Game {
     this.env = new Environment(this.engine, this.textures);
     this.assets = new TrackAssets(this.textures, this.engine.quality);
     this.track = new Track(this.engine.scene, this.assets);
+    this.forest = new Forest(this.engine.scene, this.assets);
     ui.progress(0.6, 'Summoning the explorer…');
 
     const gltf = await new GLTFLoader().loadAsync('./models/Soldier.glb', (e) => {
@@ -257,6 +259,7 @@ export class Game {
     this.rig.baseFov = this.engine.camera.aspect < 1 ? 75 : 62;
     this.rig.update(dt, player, this.speed);
     this.env.update(dt, player.worldPos);
+    this.forest.update(player.worldPos);
   }
 
   onPlayerEvent(e) {
