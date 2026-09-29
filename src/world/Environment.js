@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { mulberry32 } from './Textures.js';
 
-const FOG_COLOR = new THREE.Color(0xa7ab98);
+const FOG_COLOR = new THREE.Color(0x9daab0);
 
 /** Sky whose HDR output is scaled into a range that plays well with bloom. */
 function makeSky(brightness = 0.42) {
@@ -42,9 +42,9 @@ export class Environment {
     sky.scale.setScalar(800);
     sky.frustumCulled = false;
     const u = sky.material.uniforms;
-    u.turbidity.value = 7.5;
-    u.rayleigh.value = 1.6;
-    u.mieCoefficient.value = 0.006;
+    u.turbidity.value = 4.2;
+    u.rayleigh.value = 1.25;
+    u.mieCoefficient.value = 0.004;
     u.mieDirectionalG.value = 0.86;
     u.cloudCoverage.value = 0.42;
     u.cloudDensity.value = 0.55;
@@ -52,8 +52,8 @@ export class Environment {
     u.cloudScale.value = 0.00022;
 
     // Golden-hour sun, low over the jungle
-    const elevation = 16;
-    const azimuth = 205;
+    const elevation = 27;
+    const azimuth = 140;
     const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuth);
     this.sunDir.setFromSphericalCoords(1, phi, theta);
@@ -107,7 +107,7 @@ export class Environment {
   }
 
   buildFog() {
-    this.scene.fog = new THREE.FogExp2(FOG_COLOR, 0.0042);
+    this.scene.fog = new THREE.FogExp2(FOG_COLOR, 0.0026);
   }
 
   buildMountains() {
@@ -174,7 +174,7 @@ export class Environment {
       fog: true,
       uniforms: THREE.UniformsUtils.merge([
         THREE.UniformsLib.fog,
-        { uTime: { value: 0 }, uOffset: { value: new THREE.Vector2() }, uColor: { value: new THREE.Color(0xe6dcc6) } },
+        { uTime: { value: 0 }, uOffset: { value: new THREE.Vector2() }, uColor: { value: new THREE.Color(0xc9d0cc) } },
       ]),
       vertexShader: /* glsl */ `
         #include <fog_pars_vertex>
@@ -202,8 +202,8 @@ export class Environment {
         void main() {
           vec2 p = vWorld * 0.018;
           float n = fbm(p + vec2(uTime * 0.02, uTime * 0.013));
-          n = smoothstep(0.35, 0.85, n + fbm(p * 2.3 - uTime * 0.015) * 0.35);
-          gl_FragColor = vec4(uColor, n * 0.55);
+          n = smoothstep(0.45, 0.95, n + fbm(p * 2.3 - uTime * 0.015) * 0.35);
+          gl_FragColor = vec4(uColor, n * 0.3);
           #include <fog_fragment>
         }
       `,
@@ -212,7 +212,7 @@ export class Environment {
     for (let i = 0; i < 3; i++) {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), mat);
       m.rotation.x = -Math.PI / 2;
-      m.position.y = -14 - i * 11;
+      m.position.y = -22 - i * 10;
       m.renderOrder = -1;
       this.mistLayers.push(m);
       this.group.add(m);

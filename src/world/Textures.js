@@ -123,7 +123,7 @@ function writeRGB(img, i, r, g, b, a = 255) {
 }
 
 // ---------- Stone paving (the path) ----------
-function stonePaving(size = 512, seed = 7) {
+function stonePaving(size = 512, seed = 7, rows = 4, cols = 2) {
   const noise = new TileNoise(seed);
   const rnd = mulberry32(seed * 13);
   const albedo = makeCanvas(size);
@@ -134,9 +134,7 @@ function stonePaving(size = 512, seed = 7) {
   const rImg = rCtx.createImageData(size, size);
   const height = new Float32Array(size * size);
 
-  // A running-bond layout: 2 columns of slabs, 4 rows, offset every other row.
-  const rows = 4;
-  const cols = 2;
+  // A running-bond layout of slabs, offset every other row.
   const blockTone = [];
   for (let r = 0; r < rows; r++) {
     blockTone[r] = [];
@@ -164,7 +162,7 @@ function stonePaving(size = 512, seed = 7) {
       const tone = blockTone[row][col % cols];
       const n1 = noise.fbm(u, v, 6, 5);
       const n2 = noise.fbm(u + 0.37, v + 0.71, 24, 3);
-      const crack = Math.pow(1 - Math.abs(noise.fbm(u + 0.2, v, 5, 4) - 0.5) * 2, 28);
+      const crack = Math.pow(1 - Math.abs(noise.fbm(u + 0.2, v, 5, 4) - 0.5) * 2, 60) * 0.6;
       const moss = clamp01((noise.fbm(u + 0.5, v + 0.3, 4, 4) - 0.52) * 4) * (0.35 + grout * 0.65);
 
       // Weathered sandstone palette
@@ -313,14 +311,14 @@ function foliage(size = 512, seed = 11, palette = 'jungle') {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, size, size);
   const hues = palette === 'jungle' ? [95, 125] : [70, 100];
-  const count = 140;
+  const count = 260;
   for (let i = 0; i < count; i++) {
     // Leaves cluster toward the middle of the card
     const a = rnd() * Math.PI * 2;
     const rr = Math.sqrt(rnd()) * size * 0.42;
     const x = size / 2 + Math.cos(a) * rr;
     const y = size / 2 + Math.sin(a) * rr * 0.85;
-    const len = size * (0.05 + rnd() * 0.07);
+    const len = size * (0.035 + rnd() * 0.05);
     const wid = len * (0.32 + rnd() * 0.2);
     const rot = a + (rnd() - 0.5) * 1.4;
     const h = lerp(hues[0], hues[1], rnd());
@@ -388,7 +386,8 @@ export function createTextures(onProgress = () => {}) {
   const T = {};
   const steps = [
     () => {
-      const p = stonePaving(512, 7);
+      // A single weathered slab, used per paving stone instance.
+      const p = stonePaving(512, 7, 1, 1);
       T.path = {
         map: toTexture(p.albedo),
         normalMap: toTexture(p.normal, { srgb: false }),

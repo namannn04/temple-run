@@ -1,11 +1,9 @@
 import './styles.css';
-import * as THREE from 'three';
-import { Engine } from './core/Engine.js';
+import { Game } from './Game.js';
 
-const engine = new Engine(document.getElementById('game'));
-engine.scene.background = new THREE.Color(0x87a5b8);
-document.getElementById('loader').classList.remove('visible');
-
-engine.renderer.setAnimationLoop(() => {
-  engine.render(engine.clock.getDelta());
+const game = new Game(document.getElementById('game'));
+game.init().catch((err) => {
+  console.error(err);
+  const t = document.getElementById('loader-text');
+  if (t) t.textContent = 'Failed to start: ' + err.message;
 });
