@@ -428,6 +428,15 @@ kbd {
   }
 }
 
+/* On wide screens the main menu sits left so the hero is visible on the right */
+@media (min-width: 900px) {
+  #menu {
+    justify-content: flex-start;
+    padding-left: 7vw;
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.1) 55%, rgba(0, 0, 0, 0) 100%);
+  }
+}
+
 @media (max-width: 520px) {
   .panel {
     padding: 28px 20px 22px;

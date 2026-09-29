@@ -47,7 +47,11 @@ export class CameraRig {
       const a = player.heading + Math.sin(this.menuT * 0.25) * 0.5 + (this.sideView || 0);
       const target = new THREE.Vector3(p.x - Math.sin(a) * 4.2, p.y + 1.7, p.z - Math.cos(a) * 4.2);
       this.pos.lerp(target, k(2.5));
-      this.look.lerp(new THREE.Vector3(p.x, p.y + 1.25, p.z), k(4));
+      // On wide screens aim left of the hero so they stand beside the menu panel
+      const wide = this.camera.aspect > 1.3 ? 1.3 : 0;
+      const view = new THREE.Vector3(p.x, p.y + 1.25, p.z).sub(this.pos).normalize();
+      const right = view.cross(new THREE.Vector3(0, 1, 0)).normalize();
+      this.look.lerp(new THREE.Vector3(p.x, p.y + 1.25, p.z).addScaledVector(right, -wide), k(4));
       this.yaw = player.heading;
       this.followY = p.y;
     } else {
