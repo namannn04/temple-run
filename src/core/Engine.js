@@ -8,9 +8,9 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { GradeShader } from './GradeShader.js';
 
 export const QUALITY = {
-  high: { pixelRatio: 2, shadowMap: 4096, bloom: true, smaa: true, trees: 1, shadowSoft: true },
-  medium: { pixelRatio: 1.5, shadowMap: 2048, bloom: true, smaa: false, trees: 0.7, shadowSoft: true },
-  low: { pixelRatio: 1, shadowMap: 1024, bloom: false, smaa: false, trees: 0.4, shadowSoft: false },
+  high: { pixelRatio: 2, shadowMap: 4096, bloom: true, smaa: true, trees: 1, shadowSoft: true, fur: 16, ao: true },
+  medium: { pixelRatio: 1.5, shadowMap: 2048, bloom: true, smaa: false, trees: 0.7, shadowSoft: true, fur: 10, ao: false },
+  low: { pixelRatio: 1, shadowMap: 1024, bloom: false, smaa: false, trees: 0.4, shadowSoft: false, fur: 0, ao: false },
 };
 
 /**

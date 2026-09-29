@@ -66,7 +66,7 @@ export class Game {
       if (e.total) ui.progress(0.6 + (e.loaded / e.total) * 0.3);
     });
     this.player = new Player(this.engine.scene, gltf);
-    this.demons = new Demons(this.engine.scene, this.textures);
+    this.demons = new Demons(this.engine.scene, this.textures, this.engine.quality);
     this.particles = new Particles(this.engine.scene, this.textures.glow);
     this.rig = new CameraRig(this.engine.camera);
     this.input = new Input(window);

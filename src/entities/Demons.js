@@ -2,128 +2,319 @@ import * as THREE from 'three';
 
 const damp = (a, b, lambda, dt) => THREE.MathUtils.lerp(a, b, 1 - Math.exp(-lambda * dt));
 
-/** A capsule limb hanging from a pivot at its top. */
-function limb(mat, radius, length) {
-  const pivot = new THREE.Group();
-  const upper = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 4, 10), mat);
-  upper.position.y = -length / 2;
-  upper.castShadow = true;
-  pivot.add(upper);
-  const knee = new THREE.Group();
-  knee.position.y = -length;
-  pivot.add(knee);
-  const lower = new THREE.Mesh(new THREE.CapsuleGeometry(radius * 0.8, length * 0.9, 4, 10), mat);
-  lower.position.y = -length * 0.45;
-  lower.castShadow = true;
-  knee.add(lower);
-  pivot.userData.knee = knee;
-  return pivot;
+// ---------------------------------------------------------------------------
+// Shell-fur material: the same geometry is drawn N times, each shell pushed a
+// little further along the normal, with strands carved out by a hash pattern.
+// ---------------------------------------------------------------------------
+function makeFurMaterial({ color, tip, length, density }) {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0 });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFurLen = { value: length };
+    shader.uniforms.uDensity = { value: density };
+    shader.uniforms.uTip = { value: new THREE.Color(tip) };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        attribute float aLayer;
+        uniform float uFurLen;
+        varying float vLayer;
+        varying vec2 vFurUv;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vLayer = aLayer;
+        vFurUv = uv;
+        // Fur length in world units regardless of how each part is scaled
+        vec3 furScale = vec3(length(modelMatrix[0].xyz), length(modelMatrix[1].xyz), length(modelMatrix[2].xyz));
+        vec3 furOffset = normalize(objectNormal) * aLayer * uFurLen;
+        furOffset.y -= aLayer * aLayer * uFurLen * 0.35; // strands droop under gravity
+        transformed += furOffset / furScale;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+        uniform float uDensity;
+        uniform vec3 uTip;
+        varying float vLayer;
+        varying vec2 vFurUv;
+        float furHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 fuv = vFurUv * vec2(uDensity * 2.0, uDensity);
+        vec2 cell = floor(fuv);
+        float h = furHash(cell);
+        // jitter each strand inside its cell so no grid pattern shows
+        vec2 jitter = vec2(furHash(cell + 17.3), furHash(cell + 41.7)) - 0.5;
+        vec2 f = fract(fuv) - 0.5 - jitter * 0.35;
+        // each strand is a cone: thinner the further out the shell is
+        float radius = (1.0 - vLayer / max(h, 0.05)) * 0.55;
+        if (vLayer > 0.0 && (h < vLayer || length(f) > radius)) discard;
+        float ao = mix(0.28, 1.0, smoothstep(0.0, 1.0, vLayer));
+        diffuseColor.rgb = mix(diffuseColor.rgb * ao, uTip, smoothstep(0.55, 1.0, vLayer) * 0.6);`
+      );
+  };
+  mat.customProgramCacheKey = () => 'fur-' + length + '-' + density;
+  return mat;
+}
+
+/** Tapered horn: a tube along a curve, pinched toward the tip. */
+function hornGeometry(side) {
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(side * 0.08, 0.1, 0.06),
+    new THREE.Vector3(side * 0.12, 0.2, 0.18),
+    new THREE.Vector3(side * 0.09, 0.26, 0.32),
+  ]);
+  const tub = 12;
+  const rad = 8;
+  const g = new THREE.TubeGeometry(curve, tub, 0.045, rad, false);
+  const pos = g.attributes.position;
+  const v = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  for (let i = 0; i <= tub; i++) {
+    const t = i / tub;
+    curve.getPointAt(t, c);
+    for (let j = 0; j <= rad; j++) {
+      const idx = i * (rad + 1) + j;
+      v.fromBufferAttribute(pos, idx);
+      v.sub(c).multiplyScalar(1 - t * 0.9).add(c);
+      pos.setXYZ(idx, v.x, v.y, v.z);
+    }
+  }
+  g.computeVertexNormals();
+  return g;
 }
 
 /**
- * One demon monkey built from primitives, animated with a procedural gallop.
+ * One demon monkey: a hunched, muscular, furry body with horns, fangs,
+ * claws and glowing eyes, animated with a procedural bounding gallop.
  */
 class Demon {
-  constructor(furMat, skinMat, eyeMat, seed) {
+  constructor(kit, seed) {
+    this.kit = kit;
+    this.seed = seed;
+    this.phase = seed * 2.1;
+    this.roarT = 2 + seed * 1.7;
     this.root = new THREE.Group();
     this.body = new THREE.Group();
     this.root.add(this.body);
-    this.phase = seed * 1.7;
-    this.seed = seed;
 
-    const torso = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 14), furMat);
-    torso.scale.set(0.95, 0.85, 1.35);
-    torso.position.set(0, 0.95, 0.05);
-    torso.rotation.x = -0.35;
-    torso.castShadow = true;
-    this.body.add(torso);
+    // --- Pelvis & hind legs
+    this.pelvis = new THREE.Group();
+    this.pelvis.position.set(0, 0.82, 0.38);
+    this.body.add(this.pelvis);
+    this.part(this.pelvis, 'sphere', [0, 0.02, 0.02], [0.36, 0.33, 0.38]);
 
-    const chest = new THREE.Mesh(new THREE.SphereGeometry(0.4, 20, 14), furMat);
-    chest.scale.set(1.15, 1.0, 1.0);
-    chest.position.set(0, 1.12, -0.38);
-    chest.castShadow = true;
-    this.body.add(chest);
-
-    // Head with a snarling muzzle and glowing eyes
-    const head = new THREE.Group();
-    head.position.set(0, 1.28, -0.78);
-    this.body.add(head);
-    this.head = head;
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.26, 18, 14), furMat);
-    skull.scale.set(1, 0.95, 1.05);
-    skull.castShadow = true;
-    head.add(skull);
-    const face = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), skinMat);
-    face.scale.set(0.95, 0.8, 0.7);
-    face.position.set(0, -0.04, -0.14);
-    head.add(face);
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 10), skinMat);
-    muzzle.scale.set(1.2, 0.8, 1);
-    muzzle.position.set(0, -0.1, -0.27);
-    head.add(muzzle);
-    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), skinMat);
-    jaw.scale.set(1.1, 0.5, 1);
-    jaw.position.set(0, -0.2, -0.22);
-    head.add(jaw);
-    this.jaw = jaw;
-    for (const s of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.038, 10, 8), eyeMat);
-      eye.position.set(s * 0.085, 0.03, -0.25);
-      head.add(eye);
-      const brow = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), furMat);
-      brow.scale.set(1.3, 0.45, 0.8);
-      brow.position.set(s * 0.09, 0.09, -0.22);
-      brow.rotation.z = s * 0.35;
-      head.add(brow);
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), skinMat);
-      ear.scale.set(0.5, 1, 0.8);
-      ear.position.set(s * 0.25, 0.04, -0.02);
-      head.add(ear);
+    // --- Spine & chest, hunched forward
+    this.chest = new THREE.Group();
+    this.chest.position.set(0, 0.2, -0.42);
+    this.pelvis.add(this.chest);
+    this.part(this.pelvis, 'sphere', [0, 0.12, -0.24], [0.34, 0.33, 0.44], [-0.3, 0, 0]); // belly
+    this.part(this.chest, 'sphere', [0, 0.08, -0.08], [0.47, 0.42, 0.42]); // chest
+    this.part(this.chest, 'sphere', [0, 0.28, 0.06], [0.44, 0.2, 0.34], [0.3, 0, 0]); // hunched back
+    // Spine ridges
+    for (let i = 0; i < 6; i++) {
+      const spike = new THREE.Mesh(kit.geo.spike, kit.mat.horn);
+      const t = i / 5;
+      spike.position.set(0, 0.46 - t * 0.12, 0.05 + t * 0.55);
+      spike.rotation.x = -0.5 + t * 0.4;
+      spike.scale.setScalar(1 - t * 0.5);
+      this.chest.add(spike);
     }
 
-    // Long arms (used for knuckle-galloping) and shorter hind legs
+    // --- Neck & head
+    this.head = new THREE.Group();
+    this.head.position.set(0, 0.27, -0.5);
+    this.head.scale.setScalar(1.35);
+    this.chest.add(this.head);
+    this.part(this.head, 'sphere', [0, 0.04, 0], [0.26, 0.24, 0.27]); // skull fur
+    const face = this.skin(this.head, kit.geo.sphere, [0, -0.02, -0.16], [0.2, 0.17, 0.14]);
+    face.castShadow = false;
+    this.skin(this.head, kit.geo.sphere, [0, -0.08, -0.29], [0.13, 0.09, 0.11]); // muzzle
+    this.skin(this.head, kit.geo.sphere, [0, 0.07, -0.21], [0.2, 0.06, 0.08]); // heavy brow
+    for (const s of [-1, 1]) {
+      this.skin(this.head, kit.geo.sphere, [s * 0.05, -0.07, -0.39], [0.025, 0.02, 0.02], kit.mat.nostril);
+    }
+    // Jaw with fangs
+    this.jaw = new THREE.Group();
+    this.jaw.position.set(0, -0.12, -0.14);
+    this.head.add(this.jaw);
+    this.skin(this.jaw, kit.geo.sphere, [0, -0.02, -0.12], [0.12, 0.05, 0.13]);
+    const mouth = new THREE.Mesh(kit.geo.sphere, kit.mat.mouth);
+    mouth.position.set(0, 0.02, -0.14);
+    mouth.scale.set(0.1, 0.03, 0.11);
+    this.jaw.add(mouth);
+    for (const s of [-1, 1]) {
+      const upper = new THREE.Mesh(kit.geo.fang, kit.mat.tooth);
+      upper.position.set(s * 0.055, -0.1, -0.33);
+      upper.rotation.x = Math.PI;
+      this.head.add(upper);
+      const lower = new THREE.Mesh(kit.geo.fang, kit.mat.tooth);
+      lower.position.set(s * 0.05, 0.03, -0.22);
+      lower.scale.setScalar(0.7);
+      this.jaw.add(lower);
+    }
+    // Eyes: emissive cores with a bloom-friendly glow halo
+    for (const s of [-1, 1]) {
+      const eye = new THREE.Mesh(kit.geo.sphere, kit.mat.eye);
+      eye.position.set(s * 0.085, 0.02, -0.265);
+      eye.scale.setScalar(0.034);
+      this.head.add(eye);
+      const glow = new THREE.Sprite(kit.mat.eyeGlow);
+      glow.position.copy(eye.position).z -= 0.02;
+      glow.scale.setScalar(0.22);
+      this.head.add(glow);
+      // Horns and ears
+      const horn = new THREE.Mesh(kit.geo.horn[s > 0 ? 1 : 0], kit.mat.horn);
+      horn.position.set(s * 0.13, 0.15, -0.05);
+      horn.castShadow = true;
+      this.head.add(horn);
+      this.skin(this.head, kit.geo.sphere, [s * 0.24, 0.04, 0.02], [0.03, 0.08, 0.06], kit.mat.skin, [0, 0, s * 0.5]);
+    }
+
+    // --- Long, muscular arms used for knuckle galloping
     this.arms = [];
     this.legs = [];
     for (const s of [-1, 1]) {
-      const arm = limb(furMat, 0.1, 0.55);
-      arm.position.set(s * 0.38, 1.18, -0.45);
-      this.body.add(arm);
-      this.arms.push(arm);
-      const leg = limb(furMat, 0.12, 0.42);
-      leg.position.set(s * 0.3, 0.9, 0.42);
-      this.body.add(leg);
-      this.legs.push(leg);
+      const shoulder = new THREE.Group();
+      shoulder.position.set(s * 0.42, 0.12, -0.12);
+      this.chest.add(shoulder);
+      this.part(shoulder, 'sphere', [0, -0.02, 0], [0.19, 0.2, 0.19]); // deltoid
+      this.part(shoulder, 'limb', [0, -0.24, 0], [1.25, 0.95, 1.25]); // upper arm
+      const elbow = new THREE.Group();
+      elbow.position.y = -0.5;
+      shoulder.add(elbow);
+      this.part(elbow, 'limb', [0, -0.22, 0], [1.0, 0.9, 1.0]); // forearm
+      const hand = new THREE.Group();
+      hand.position.y = -0.46;
+      elbow.add(hand);
+      this.skin(hand, kit.geo.sphere, [0, -0.02, -0.04], [0.1, 0.06, 0.13]);
+      this.claws(hand, -0.16);
+      shoulder.userData = { elbow, hand };
+      this.arms.push(shoulder);
+
+      // Hind legs: thigh -> shin -> foot
+      const hip = new THREE.Group();
+      hip.position.set(s * 0.26, -0.02, 0.05);
+      this.pelvis.add(hip);
+      this.part(hip, 'limb', [0, -0.18, 0], [1.35, 0.75, 1.35]);
+      const knee = new THREE.Group();
+      knee.position.y = -0.38;
+      hip.add(knee);
+      this.part(knee, 'limb', [0, -0.17, 0], [0.95, 0.7, 0.95]);
+      const foot = new THREE.Group();
+      foot.position.y = -0.36;
+      knee.add(foot);
+      this.skin(foot, kit.geo.sphere, [0, -0.02, -0.07], [0.09, 0.05, 0.15]);
+      this.claws(foot, -0.2);
+      hip.userData = { knee, foot };
+      this.legs.push(hip);
     }
 
-    // Tail
-    const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.9, 4, 8), furMat);
-    tail.position.set(0, 1.0, 0.95);
-    tail.rotation.x = 1.0;
-    this.body.add(tail);
-    this.tail = tail;
+    // --- Curling tail made of a chain of segments
+    this.tail = [];
+    let parent = this.pelvis;
+    for (let i = 0; i < 5; i++) {
+      const seg = new THREE.Group();
+      seg.position.set(0, i === 0 ? 0.12 : 0, i === 0 ? 0.34 : 0.17);
+      parent.add(seg);
+      this.part(seg, 'sphere', [0, 0, 0.08], [0.07 - i * 0.008, 0.07 - i * 0.008, 0.13]);
+      this.tail.push(seg);
+      parent = seg;
+    }
 
-    const s = 1.05 + (seed % 3) * 0.08;
+    const s = 1.08 + (seed % 3) * 0.1;
     this.root.scale.setScalar(s);
   }
 
-  animate(dt, speed, t) {
-    // Gallop frequency rises with running speed
-    const freq = 1.6 + speed * 0.14;
+  /** Furry body part: solid base plus fur shells. */
+  part(parent, geoName, pos, scale, rot = [0, 0, 0]) {
+    const k = this.kit;
+    const g = new THREE.Group();
+    g.position.set(...pos);
+    g.scale.set(...scale);
+    g.rotation.set(...rot);
+    const base = new THREE.Mesh(k.geo[geoName], k.mat.furBase);
+    base.castShadow = true;
+    base.receiveShadow = true;
+    g.add(base);
+    if (k.shells[geoName]) {
+      const shells = new THREE.InstancedMesh(k.shells[geoName], k.mat.fur, k.layers);
+      shells.frustumCulled = false;
+      g.add(shells);
+    }
+    parent.add(g);
+    return g;
+  }
+
+  skin(parent, geo, pos, scale, mat = this.kit.mat.skin, rot = [0, 0, 0]) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(...pos);
+    m.scale.set(...scale);
+    m.rotation.set(...rot);
+    m.castShadow = true;
+    parent.add(m);
+    return m;
+  }
+
+  claws(parent, z) {
+    for (let i = -1; i <= 1; i++) {
+      const c = new THREE.Mesh(this.kit.geo.claw, this.kit.mat.horn);
+      c.position.set(i * 0.045, -0.04, z);
+      c.rotation.x = -Math.PI / 2 - 0.4;
+      parent.add(c);
+    }
+  }
+
+  animate(dt, speed, t, pouncing) {
+    const freq = 1.5 + speed * 0.13;
     this.phase += dt * freq * Math.PI * 2;
     const p = this.phase;
-    const swing = 1.0;
-    // Front pair and hind pair alternate like a bounding gallop
-    this.arms[0].rotation.x = Math.sin(p) * swing - 0.2;
-    this.arms[1].rotation.x = Math.sin(p + 0.35) * swing - 0.2;
-    this.legs[0].rotation.x = Math.sin(p + Math.PI) * swing * 0.9 + 0.3;
-    this.legs[1].rotation.x = Math.sin(p + Math.PI + 0.35) * swing * 0.9 + 0.3;
-    for (const l of this.arms) l.userData.knee.rotation.x = -Math.max(0, Math.cos(p)) * 0.8;
-    for (const l of this.legs) l.userData.knee.rotation.x = Math.max(0, Math.cos(p + Math.PI)) * 1.1;
-    this.body.position.y = Math.abs(Math.sin(p)) * 0.18;
-    this.body.rotation.x = Math.sin(p) * 0.12;
-    this.head.rotation.x = -Math.sin(p) * 0.15 + 0.1;
-    this.jaw.position.y = -0.2 - (Math.sin(t * 9 + this.seed) * 0.5 + 0.5) * 0.05;
-    this.tail.rotation.z = Math.sin(p * 0.5) * 0.4;
+    const s = Math.sin(p);
+    const c = Math.cos(p);
+
+    // Rotary gallop: front pair then hind pair, slightly offset left/right
+    const armSwing = 1.05;
+    this.arms.forEach((a, i) => {
+      const ph = p + i * 0.4;
+      a.rotation.x = Math.sin(ph) * armSwing - 0.15;
+      a.rotation.z = (i ? 1 : -1) * 0.12;
+      a.userData.elbow.rotation.x = -Math.max(0, Math.cos(ph)) * 1.1 + 0.15;
+      a.userData.hand.rotation.x = Math.max(0, -Math.sin(ph)) * 0.8;
+    });
+    this.legs.forEach((l, i) => {
+      const ph = p + Math.PI + i * 0.4;
+      l.rotation.x = Math.sin(ph) * 0.95 + 0.25;
+      l.userData.knee.rotation.x = Math.max(0, Math.cos(ph)) * 1.3 + 0.1;
+      l.userData.foot.rotation.x = -Math.max(0, Math.sin(ph)) * 0.6;
+    });
+
+    // Spine flexes and extends with each bound
+    this.pelvis.rotation.x = s * 0.14;
+    this.chest.rotation.x = -s * 0.2 + 0.1;
+    this.body.position.y = Math.max(0, Math.sin(p * 1.0 + 0.6)) * 0.22;
+    this.body.rotation.z = Math.sin(p * 0.5) * 0.04;
+
+    // Head stays locked on the prey, with periodic roars
+    this.roarT -= dt;
+    let roar = 0;
+    if (this.roarT < 0) {
+      roar = Math.sin(Math.min(1, -this.roarT / 0.9) * Math.PI);
+      if (this.roarT < -0.9) this.roarT = 2.5 + Math.random() * 3;
+    }
+    if (pouncing) roar = Math.max(roar, 0.8);
+    this.head.rotation.x = -this.chest.rotation.x * 0.8 - c * 0.08 - roar * 0.35;
+    this.jaw.rotation.x = 0.12 + roar * 0.55 + (Math.sin(t * 11 + this.seed) * 0.5 + 0.5) * 0.08;
+
+    this.tail.forEach((seg, i) => {
+      seg.rotation.x = -0.25 + Math.sin(p - i * 0.6) * 0.18;
+      seg.rotation.y = Math.sin(p * 0.5 - i * 0.7) * 0.25;
+    });
   }
 }
 
@@ -131,31 +322,76 @@ class Demon {
  * The pack of demons following the runner's exact trail.
  */
 export class Demons {
-  constructor(scene, textures) {
+  constructor(scene, textures, quality = { fur: 12 }) {
     this.scene = scene;
-    const furMat = new THREE.MeshPhysicalMaterial({
-      color: 0x1d1612,
-      roughness: 0.95,
-      sheen: 1,
-      sheenRoughness: 0.6,
-      sheenColor: new THREE.Color(0x5a4636),
-      normalMap: textures.bark.normalMap,
-      normalScale: new THREE.Vector2(0.6, 0.6),
-    });
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0x3a2a24, roughness: 0.7 });
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff3010, emissive: 0xff2200, emissiveIntensity: 6 });
-    this.demons = [0, 1, 2].map((i) => new Demon(furMat, skinMat, eyeMat, i));
+    const layers = quality.fur ?? 12;
+    const sphere = new THREE.SphereGeometry(1, 28, 18);
+    const limb = new THREE.CapsuleGeometry(0.1, 0.3, 6, 14);
+    const makeShells = (geo) => {
+      if (!layers) return null;
+      const g = geo.clone();
+      const la = new Float32Array(layers);
+      for (let i = 0; i < layers; i++) la[i] = (i + 1) / layers;
+      g.setAttribute('aLayer', new THREE.InstancedBufferAttribute(la, 1));
+      return g;
+    };
+
+    const furColor = 0x33251b;
+    this.kit = {
+      layers,
+      geo: {
+        sphere,
+        limb,
+        spike: new THREE.ConeGeometry(0.035, 0.16, 6),
+        fang: new THREE.ConeGeometry(0.014, 0.075, 6),
+        claw: new THREE.ConeGeometry(0.016, 0.09, 6),
+        horn: [hornGeometry(-1), hornGeometry(1)],
+      },
+      shells: { sphere: makeShells(sphere), limb: makeShells(limb) },
+      mat: {
+        furBase: new THREE.MeshStandardMaterial({
+          color: new THREE.Color(furColor).multiplyScalar(0.55),
+          roughness: 1,
+          normalMap: textures.bark.normalMap,
+          normalScale: new THREE.Vector2(0.4, 0.4),
+        }),
+        fur: makeFurMaterial({ color: furColor, tip: 0x7d5c42, length: 0.06, density: 52 }),
+        skin: new THREE.MeshPhysicalMaterial({
+          color: 0x3b2320,
+          roughness: 0.55,
+          clearcoat: 0.25,
+          clearcoatRoughness: 0.6,
+          normalMap: textures.bark.normalMap,
+          normalScale: new THREE.Vector2(0.5, 0.5),
+        }),
+        nostril: new THREE.MeshStandardMaterial({ color: 0x0a0505, roughness: 1 }),
+        mouth: new THREE.MeshStandardMaterial({ color: 0x3a0806, emissive: 0x5a0a04, emissiveIntensity: 0.6, roughness: 0.4 }),
+        tooth: new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.35 }),
+        horn: new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.45, metalness: 0.05 }),
+        eye: new THREE.MeshStandardMaterial({ color: 0xff4a1a, emissive: 0xff2a00, emissiveIntensity: 9 }),
+        eyeGlow: new THREE.SpriteMaterial({
+          map: textures.glow,
+          color: 0xff3a10,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      },
+    };
+
+    this.demons = [0, 1, 2].map((i) => new Demon(this.kit, i));
     this.offsets = [
       { back: 0, x: 0 },
-      { back: 1.3, x: -1.2 },
-      { back: 1.8, x: 1.25 },
+      { back: 1.4, x: -1.25 },
+      { back: 1.9, x: 1.3 },
     ];
     this.group = new THREE.Group();
     for (const d of this.demons) this.group.add(d.root);
     scene.add(this.group);
 
     this.trail = [];
-    this.gap = 16;
+    this.gap = 2.5;
     this.visible = false;
     this.group.visible = false;
     this._tmp = new THREE.Vector3();
@@ -216,7 +452,7 @@ export class Demons {
       let diff = yaw - d.root.rotation.y;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       d.root.rotation.y += diff * (1 - Math.exp(-10 * dt));
-      d.animate(dt, speed, time);
+      d.animate(dt, speed, time, pouncing);
     });
   }
 }
