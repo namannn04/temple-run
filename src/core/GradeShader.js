@@ -10,7 +10,7 @@ export const GradeShader = {
     uVignette: { value: 0.32 },
     uGrain: { value: 0.035 },
     uDanger: { value: 0 },
-    uSaturation: { value: 1.08 },
+    uSaturation: { value: 1.12 },
     uFade: { value: 0 },
   },
   vertexShader: /* glsl */ `
@@ -49,7 +49,7 @@ export const GradeShader = {
       c *= mix(shadowTint, highTint, smoothstep(0.1, 0.8, l));
 
       // Soft S-curve contrast
-      c = mix(c, c * c * (3.0 - 2.0 * c), 0.25);
+      c = mix(c, c * c * (3.0 - 2.0 * c), 0.38);
 
       // Vignette
       vec2 d = vUv - 0.5;

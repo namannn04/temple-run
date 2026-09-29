@@ -6,6 +6,7 @@ import { Environment } from './world/Environment.js';
 import { TrackAssets } from './world/TrackAssets.js';
 import { Track, LANES } from './world/Track.js';
 import { Forest } from './world/Forest.js';
+import { TorchLights } from './world/TorchLights.js';
 import { Player } from './entities/Player.js';
 import { Demons } from './entities/Demons.js';
 import { CameraRig } from './systems/CameraRig.js';
@@ -52,6 +53,12 @@ export class Game {
     await nextFrame();
 
     this.engine = new Engine(this.canvas, this.quality);
+    // If the GPU drops the context (driver reset, tab in background), recover cleanly
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (this.state === 'playing') this.pause();
+    });
+    this.canvas.addEventListener('webglcontextrestored', () => location.reload());
     this.textures = createTextures();
     ui.progress(0.45, 'Growing the jungle…');
     await nextFrame();
@@ -60,6 +67,7 @@ export class Game {
     this.assets = new TrackAssets(this.textures, this.engine.quality);
     this.track = new Track(this.engine.scene, this.assets);
     this.forest = new Forest(this.engine.scene, this.assets);
+    this.torchLights = new TorchLights(this.engine.scene, this.engine.quality.ao ? 4 : 2);
     ui.progress(0.6, 'Summoning the explorer…');
 
     const gltf = await new GLTFLoader().loadAsync('./models/Soldier.glb', (e) => {
@@ -293,7 +301,7 @@ export class Game {
       if (!this.hintShown && player.seg.index === 0 && player.seg.length - player.d < 26 && this.best < 1500) {
         this.hintShown = true;
         const touch = matchMedia('(pointer: coarse)').matches;
-        this.ui.toast(touch ? `SWIPE ${player.seg.turn.toUpperCase()} TO TURN` : `PRESS ${player.seg.turn === 'left' ? '←' : '→'} TO TURN`, 1800);
+        this.ui.toast(touch ? `SWIPE ${player.seg.turn.toUpperCase()} TO TURN` : `PRESS ${player.seg.turn.toUpperCase()} TO TURN`, 1800);
       }
       this.score += this.speed * dt * this.multiplier;
       this.checkCollisions();
@@ -331,6 +339,7 @@ export class Game {
     this.rig.update(dt, player, this.speed);
     this.env.update(dt, player.worldPos);
     this.forest.update(player.worldPos);
+    this.torchLights.update(this.engine.time, player.worldPos, this.track.segments);
   }
 
   onPlayerEvent(e) {

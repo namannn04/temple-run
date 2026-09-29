@@ -147,7 +147,7 @@ function flameMaterial(glowTex) {
         vec3 cool = vec3(1.0, 0.25, 0.03);
         vec3 c = mix(hot, cool, smoothstep(0.0, 0.7, vLife));
         float fade = (1.0 - vLife) * smoothstep(0.0, 0.08, vLife);
-        gl_FragColor = vec4(c * 2.2, a * fade);
+        gl_FragColor = vec4(c * 4.5, a * fade);
       }
     `,
   });
@@ -181,7 +181,18 @@ export class TrackAssets {
 
     // ---------- Materials ----------
     this.mat = {
-      slab: new THREE.MeshStandardMaterial({ ...T.path, roughness: 1, metalness: 0, color: 0xffffff }),
+      slabs: T.paths.map((tex) => new THREE.MeshStandardMaterial({ ...tex, roughness: 1, metalness: 0, color: 0xffffff })),
+      fern: addWind(
+        new THREE.MeshStandardMaterial({
+          map: T.fern,
+          alphaTest: 0.4,
+          side: THREE.DoubleSide,
+          roughness: 0.8,
+          color: 0xd8e6b8,
+        }),
+        0.06,
+        1.4
+      ),
       wall: new THREE.MeshStandardMaterial({ ...T.wall, roughness: 1, color: 0xe6ddd0 }),
       pillar: new THREE.MeshStandardMaterial({ ...T.pillar, roughness: 1, color: 0xd9cfbf }),
       support: new THREE.MeshStandardMaterial({ ...T.wall, roughness: 1, color: 0xa39a8c }),
@@ -208,13 +219,12 @@ export class TrackAssets {
         0.3
       ),
       iron: new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.6, metalness: 0.85 }),
-      ember: new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff5a10, emissiveIntensity: 2.5 }),
+      ember: new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff5a10, emissiveIntensity: 5 }),
       flame: flameMaterial(T.glow),
       gold: new THREE.MeshStandardMaterial({ color: 0xffc94a, metalness: 1, roughness: 0.22, emissive: 0x4a2c00, emissiveIntensity: 0.6 }),
     };
-    for (const k of ['slab', 'wall', 'pillar', 'support']) {
-      // Keep texture detail crisp at grazing angles
-      const m = this.mat[k];
+    // Keep texture detail crisp at grazing angles
+    for (const m of [...this.mat.slabs, this.mat.wall, this.mat.pillar, this.mat.support]) {
       m.normalScale = new THREE.Vector2(1.2, 1.2);
     }
 
@@ -261,6 +271,12 @@ export class TrackAssets {
       buildTreeGeometries(12, { height: 42, canopy: 10, cards: 46 }),
       buildTreeGeometries(31, { height: 34, canopy: 8, cards: 36 }),
     ];
+
+    // Ground-cover tuft: two crossed cards rooted at y = 0
+    const fernA = new THREE.PlaneGeometry(1, 0.8);
+    fernA.translate(0, 0.4, 0);
+    const fernB = fernA.clone().rotateY(Math.PI / 2);
+    this.geo.fern = mergeGeometries([fernA, fernB]);
 
     // Hanging vine strip
     const vine = new THREE.PlaneGeometry(0.9, 3.2, 1, 6);

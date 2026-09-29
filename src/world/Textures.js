@@ -122,10 +122,9 @@ function writeRGB(img, i, r, g, b, a = 255) {
   img[i + 3] = a;
 }
 
-// ---------- Stone paving (the path) ----------
-function stonePaving(size = 512, seed = 7, rows = 4, cols = 2) {
+// ---------- A single weathered paving slab (much more detailed) ----------
+function pavingSlab(size = 512, seed = 7, hueShift = 0) {
   const noise = new TileNoise(seed);
-  const rnd = mulberry32(seed * 13);
   const albedo = makeCanvas(size);
   const rough = makeCanvas(size);
   const aCtx = albedo.getContext('2d');
@@ -134,66 +133,65 @@ function stonePaving(size = 512, seed = 7, rows = 4, cols = 2) {
   const rImg = rCtx.createImageData(size, size);
   const height = new Float32Array(size * size);
 
-  // A running-bond layout of slabs, offset every other row.
-  const blockTone = [];
-  for (let r = 0; r < rows; r++) {
-    blockTone[r] = [];
-    for (let c = 0; c < cols + 1; c++) blockTone[r][c] = rnd();
-  }
-
   for (let y = 0; y < size; y++) {
     const v = y / size;
-    const row = Math.floor(v * rows);
-    const fy = v * rows - row;
     for (let x = 0; x < size; x++) {
       const u = x / size;
-      const shift = row % 2 ? 0.5 / cols : 0;
-      const uu = (u + shift) % 1;
-      const col = Math.floor(uu * cols);
-      const fx = uu * cols - col;
+      // Distance to the slab border, warped so the edges look chipped
+      const warp = (noise.fbm(u, v, 10, 3) - 0.5) * 0.05;
+      const edge = Math.min(u, 1 - u, v, 1 - v) + warp;
+      const border = 1 - clamp01((edge - 0.005) / 0.035); // worn rounded rim
+      const outside = edge < 0.006 ? 1 : 0;
 
-      // Distance to slab edge (in slab-local units) -> grout.
-      const warp = (noise.fbm(u, v, 8, 3) - 0.5) * 0.06;
-      const ex = Math.min(fx, 1 - fx) / cols + warp;
-      const ey = Math.min(fy, 1 - fy) / rows + warp;
-      const edge = Math.min(ex, ey);
-      const grout = 1 - clamp01((edge - 0.004) / 0.012);
+      const macro = noise.fbm(u, v, 3, 4); // large tonal patches
+      const n1 = noise.fbm(u + 0.13, v + 0.29, 8, 5); // mid detail
+      const grain = noise.fbm(u + 0.37, v + 0.71, 48, 2); // sandy grain
+      const pits = clamp01((noise.fbm(u + 0.61, v + 0.17, 64, 2) - 0.72) * 6); // tiny pores
 
-      const tone = blockTone[row][col % cols];
-      const n1 = noise.fbm(u, v, 6, 5);
-      const n2 = noise.fbm(u + 0.37, v + 0.71, 24, 3);
-      const crack = Math.pow(1 - Math.abs(noise.fbm(u + 0.2, v, 5, 4) - 0.5) * 2, 60) * 0.6;
-      const moss = clamp01((noise.fbm(u + 0.5, v + 0.3, 4, 4) - 0.52) * 4) * (0.35 + grout * 0.65);
+      // Sparse, thin, branching cracks from ridged noise, masked to a few areas
+      const ridge = 1 - Math.abs(noise.fbm(u + 0.9, v + 0.4, 5, 5) * 2 - 1);
+      const crackMask = clamp01((noise.fbm(u + 0.2, v + 0.8, 2, 2) - 0.4) * 4);
+      const crack = Math.pow(ridge, 38) * crackMask;
 
-      // Weathered sandstone palette
-      let r = lerp(0.46, 0.62, tone) * (0.72 + n1 * 0.5) + n2 * 0.06;
-      let g = lerp(0.4, 0.53, tone) * (0.72 + n1 * 0.5) + n2 * 0.05;
-      let b = lerp(0.32, 0.42, tone) * (0.72 + n1 * 0.48) + n2 * 0.04;
+      // Lichen blobs and dirt that collects near the rim
+      const lichen = clamp01((noise.fbm(u + 0.5, v + 0.3, 7, 4) - 0.6) * 6);
+      const moss = clamp01((noise.fbm(u + 0.8, v + 0.6, 5, 4) - 0.5) * 3) * border;
+      const dirt = border * 0.6 + clamp01((0.55 - macro) * 1.5) * 0.45 + clamp01((noise.fbm(u + 0.3, v + 0.1, 12, 3) - 0.55) * 3) * 0.3;
+      // The middle is polished by centuries of feet
+      const cx = u - 0.5;
+      const cy = v - 0.5;
+      const worn = clamp01(1 - Math.sqrt(cx * cx * 3 + cy * cy) * 1.8);
 
-      const dark = grout * 0.7 + crack * 0.5;
-      r *= 1 - dark;
-      g *= 1 - dark * 0.95;
-      b *= 1 - dark * 0.9;
-
-      // Moss creeping in the grout
-      r = lerp(r, 0.16, moss * 0.8);
-      g = lerp(g, 0.24, moss * 0.8);
-      b = lerp(b, 0.08, moss * 0.8);
+      const tone = 0.6 + macro * 0.5 + n1 * 0.24 + grain * 0.12;
+      let r = (0.52 + hueShift * 0.04) * tone;
+      let g = (0.47 + hueShift * 0.01) * tone;
+      let b = (0.39 - hueShift * 0.03) * tone;
+      // dirt / weathering darkening
+      r *= 1 - dirt * 0.35 - pits * 0.35 - crack * 0.6 - outside * 0.7;
+      g *= 1 - dirt * 0.33 - pits * 0.35 - crack * 0.6 - outside * 0.7;
+      b *= 1 - dirt * 0.3 - pits * 0.33 - crack * 0.55 - outside * 0.7;
+      // pale lichen
+      r = lerp(r, 0.66, lichen * 0.55);
+      g = lerp(g, 0.66, lichen * 0.55);
+      b = lerp(b, 0.5, lichen * 0.55);
+      // moss in the worn rim
+      r = lerp(r, 0.17, moss * 0.85);
+      g = lerp(g, 0.25, moss * 0.85);
+      b = lerp(b, 0.08, moss * 0.85);
 
       const i = (y * size + x) * 4;
       writeRGB(aImg.data, i, clamp01(r), clamp01(g), clamp01(b));
 
-      const bevel = clamp01(edge * 40);
-      height[y * size + x] = bevel * 0.6 + n1 * 0.35 + n2 * 0.08 - crack * 0.3 - grout * 0.3;
+      const rim = clamp01(edge * 22);
+      height[y * size + x] = rim * 0.7 + n1 * 0.25 + grain * 0.06 - pits * 0.12 - crack * 0.35 + macro * 0.15;
 
-      const ro = clamp01(0.78 + n2 * 0.18 - moss * 0.1 + grout * 0.1);
+      const ro = clamp01(0.86 + grain * 0.1 - worn * 0.28 + moss * 0.1 + lichen * 0.05 + dirt * 0.05);
       writeRGB(rImg.data, i, ro, ro, ro);
     }
   }
   aCtx.putImageData(aImg, 0, 0);
   rCtx.putImageData(rImg, 0, 0);
-  const normal = heightToNormal(height, size, size, 3.5);
-  return { albedo, normal, rough };
+  return { albedo, normal: heightToNormal(height, size, size, 6), rough };
 }
 
 // ---------- Rough rock / masonry blocks (walls, pillars, cliffs) ----------
@@ -305,45 +303,119 @@ function bark(size = 256, seed = 3) {
 }
 
 // ---------- Foliage card (alpha) ----------
+function drawLeaf(ctx, len, wid, h, sat, light, rnd) {
+  // Pointed tropical leaf with a midrib and side veins
+  const grad = ctx.createLinearGradient(0, -wid, 0, wid);
+  grad.addColorStop(0, `hsl(${h}, ${sat}%, ${light * 1.2}%)`);
+  grad.addColorStop(0.5, `hsl(${h}, ${sat}%, ${light}%)`);
+  grad.addColorStop(1, `hsl(${h + 6}, ${sat - 5}%, ${light * 0.7}%)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.bezierCurveTo(len * 0.25, -wid * 1.1, len * 0.7, -wid * 0.8, len, 0);
+  ctx.bezierCurveTo(len * 0.7, wid * 0.8, len * 0.25, wid * 1.1, 0, 0);
+  ctx.fill();
+  ctx.strokeStyle = `hsla(${h - 10}, ${sat}%, ${light * 1.7}%, 0.55)`;
+  ctx.lineWidth = Math.max(1, wid * 0.08);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(len * 0.96, 0);
+  ctx.stroke();
+  ctx.lineWidth = Math.max(0.6, wid * 0.04);
+  ctx.strokeStyle = `hsla(${h - 10}, ${sat}%, ${light * 1.5}%, 0.3)`;
+  for (let k = 1; k < 6; k++) {
+    const t = k / 6;
+    const w = Math.sin(t * Math.PI) * wid * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(len * t, 0);
+    ctx.lineTo(len * (t + 0.08), -w);
+    ctx.moveTo(len * t, 0);
+    ctx.lineTo(len * (t + 0.08), w);
+    ctx.stroke();
+  }
+  // a few insect bites / dry spots for realism
+  if (rnd() < 0.25) {
+    ctx.fillStyle = `hsla(40, 40%, ${light * 1.4}%, 0.6)`;
+    ctx.beginPath();
+    ctx.arc(len * (0.3 + rnd() * 0.5), (rnd() - 0.5) * wid, wid * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function foliage(size = 512, seed = 11, palette = 'jungle') {
   const rnd = mulberry32(seed);
   const canvas = makeCanvas(size);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, size, size);
-  const hues = palette === 'jungle' ? [95, 125] : [70, 100];
-  const count = 260;
+  const hues = palette === 'jungle' ? [88, 122] : [62, 95];
+  const count = 230;
   for (let i = 0; i < count; i++) {
-    // Leaves cluster toward the middle of the card
+    // Leaves cluster toward the middle of the card, darker in the core
     const a = rnd() * Math.PI * 2;
-    const rr = Math.sqrt(rnd()) * size * 0.42;
+    const rr = Math.sqrt(rnd()) * size * 0.4;
     const x = size / 2 + Math.cos(a) * rr;
     const y = size / 2 + Math.sin(a) * rr * 0.85;
-    const len = size * (0.035 + rnd() * 0.05);
-    const wid = len * (0.32 + rnd() * 0.2);
-    const rot = a + (rnd() - 0.5) * 1.4;
-    const h = lerp(hues[0], hues[1], rnd());
-    const s = 35 + rnd() * 30;
-    const l = 14 + rnd() * 22 + (1 - rr / (size * 0.42)) * 6;
+    const len = size * (0.05 + rnd() * 0.06);
+    const wid = len * (0.22 + rnd() * 0.16);
+    const outer = rr / (size * 0.4);
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(rot);
-    const grad = ctx.createLinearGradient(-len / 2, 0, len / 2, 0);
-    grad.addColorStop(0, `hsl(${h}, ${s}%, ${l * 0.7}%)`);
-    grad.addColorStop(1, `hsl(${h}, ${s}%, ${l * 1.25}%)`);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(-len / 2, 0);
-    ctx.quadraticCurveTo(0, -wid, len / 2, 0);
-    ctx.quadraticCurveTo(0, wid, -len / 2, 0);
-    ctx.fill();
-    // midrib
-    ctx.strokeStyle = `hsla(${h}, ${s}%, ${l * 1.6}%, 0.5)`;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-len / 2, 0);
-    ctx.lineTo(len / 2, 0);
-    ctx.stroke();
+    ctx.rotate(a + (rnd() - 0.5) * 1.2);
+    drawLeaf(ctx, len, wid, lerp(hues[0], hues[1], rnd()), 38 + rnd() * 28, 12 + rnd() * 16 + outer * 12, rnd);
     ctx.restore();
+  }
+  return canvas;
+}
+
+// ---------- Fern / grass tuft card for ground cover (alpha) ----------
+function fernCard(size = 256, seed = 5) {
+  const rnd = mulberry32(seed);
+  const canvas = makeCanvas(size);
+  const ctx = canvas.getContext('2d');
+  const base = { x: size / 2, y: size };
+  // Grass blades
+  for (let i = 0; i < 40; i++) {
+    const h = size * (0.3 + rnd() * 0.5);
+    const lean = (rnd() - 0.5) * size * 0.5;
+    ctx.strokeStyle = `hsl(${75 + rnd() * 30}, ${35 + rnd() * 25}%, ${16 + rnd() * 18}%)`;
+    ctx.lineWidth = 1.5 + rnd() * 2;
+    ctx.beginPath();
+    ctx.moveTo(base.x + (rnd() - 0.5) * size * 0.2, base.y);
+    ctx.quadraticCurveTo(base.x + lean * 0.3, base.y - h * 0.6, base.x + lean, base.y - h);
+    ctx.stroke();
+  }
+  // Fern fronds arching out from the base
+  for (let f = 0; f < 7; f++) {
+    const ang = -Math.PI / 2 + (f / 6 - 0.5) * 2.2 + (rnd() - 0.5) * 0.2;
+    const len = size * (0.45 + rnd() * 0.35);
+    const hue = 90 + rnd() * 25;
+    const steps = 18;
+    let px = base.x;
+    let py = base.y;
+    let dir = ang;
+    for (let k = 0; k < steps; k++) {
+      const t = k / steps;
+      const nx = px + Math.cos(dir) * (len / steps);
+      const ny = py + Math.sin(dir) * (len / steps);
+      dir += (ang < -Math.PI / 2 ? -1 : 1) * 0.05; // arch outward
+      ctx.strokeStyle = `hsl(${hue}, 40%, 18%)`;
+      ctx.lineWidth = 2 * (1 - t) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+      // pinnae on both sides
+      const pl = size * 0.09 * Math.sin((t * 0.85 + 0.1) * Math.PI);
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(nx, ny);
+        ctx.rotate(dir + side * 1.1);
+        drawLeaf(ctx, pl, pl * 0.28, hue, 45, 18 + t * 12, rnd);
+        ctx.restore();
+      }
+      px = nx;
+      py = ny;
+    }
   }
   return canvas;
 }
@@ -386,13 +458,13 @@ export function createTextures(onProgress = () => {}) {
   const T = {};
   const steps = [
     () => {
-      // A single weathered slab, used per paving stone instance.
-      const p = stonePaving(512, 7, 1, 1);
-      T.path = {
+      // Two weathered slab variants, used per paving stone instance.
+      T.paths = [pavingSlab(512, 7, 0), pavingSlab(512, 19, 1)].map((p) => ({
         map: toTexture(p.albedo),
         normalMap: toTexture(p.normal, { srgb: false }),
         roughnessMap: toTexture(p.rough, { srgb: false }),
-      };
+      }));
+      T.path = T.paths[0];
     },
     () => {
       const w = rockBlocks(512, 21, { rows: 4, cols: 2, mossAmt: 0.6 });
@@ -421,6 +493,8 @@ export function createTextures(onProgress = () => {}) {
     () => {
       T.leaves = toTexture(foliage(512, 11, 'jungle'));
       T.leavesDry = toTexture(foliage(512, 29, 'dry'));
+      T.fern = toTexture(fernCard(256, 5));
+      T.fern.wrapS = T.fern.wrapT = THREE.ClampToEdgeWrapping;
     },
     () => {
       T.ground = toTexture(jungleFloor(256, 17).albedo);

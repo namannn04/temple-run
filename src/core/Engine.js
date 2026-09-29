@@ -6,6 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { GradeShader } from './GradeShader.js';
+import { GodRaysPass } from './GodRaysPass.js';
 
 export const QUALITY = {
   high: { pixelRatio: 2, shadowMap: 4096, bloom: true, smaa: true, trees: 1, shadowSoft: true, fur: 16, ao: true },
@@ -27,10 +28,11 @@ export class Engine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = 0.95;
     this.renderer.shadowMap.enabled = true;
 
     this.scene = new THREE.Scene();
+    this.sunDir = new THREE.Vector3(0, 1, 0); // set by the environment
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 900);
 
     this.timer = new THREE.Timer();
@@ -60,11 +62,19 @@ export class Engine {
       type: THREE.HalfFloatType,
       samples: q.smaa ? 0 : 4,
     });
+    target.depthTexture = new THREE.DepthTexture(size.x, size.y);
     this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
     if (q.bloom) {
-      this.bloom = new UnrealBloomPass(size, 0.28, 0.55, 1.0);
+      this.godRays = new GodRaysPass(this.camera, this.sunDir, { samples: 64 });
+      this.composer.addPass(this.godRays);
+    } else {
+      this.godRays = null;
+    }
+
+    if (q.bloom) {
+      this.bloom = new UnrealBloomPass(size, 0.55, 0.4, 3.2);
       this.composer.addPass(this.bloom);
     } else {
       this.bloom = null;

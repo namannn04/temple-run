@@ -290,8 +290,9 @@ export class Track {
       if (!seg.inGap(d)) rows.push(d);
     }
     const slabX = [-1.95, -0.65, 0.65, 1.95];
-    const slabs = new THREE.InstancedMesh(A.geo.slab, A.mat.slab, rows.length * 4);
-    let n = 0;
+    // Two texture variants, each its own instanced mesh
+    const slabMeshes = A.mat.slabs.map((mat) => new THREE.InstancedMesh(A.geo.slab, mat, rows.length * 4));
+    const counts = slabMeshes.map(() => 0);
     for (const d of rows) {
       for (const x of slabX) {
         // Slabs at a gap's lip are cracked and sunken
@@ -303,17 +304,22 @@ export class Track {
         _q.setFromEuler(_e);
         _s.set(1, 1, 1);
         _m.compose(_p, _q, _s);
-        slabs.setMatrixAt(n, _m);
+        const v = rnd() < 0.5 ? 0 : 1;
+        const mesh = slabMeshes[v];
+        mesh.setMatrixAt(counts[v], _m);
         const tone = 0.82 + rnd() * 0.28;
         _c.setRGB(tone, tone * (0.96 + rnd() * 0.05), tone * (0.9 + rnd() * 0.08));
-        slabs.setColorAt(n, _c);
-        n++;
+        mesh.setColorAt(counts[v], _c);
+        counts[v]++;
       }
     }
-    slabs.receiveShadow = true;
-    slabs.castShadow = false;
-    g.add(slabs);
-    seg.disposables.push(slabs);
+    slabMeshes.forEach((mesh, v) => {
+      mesh.count = counts[v];
+      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      g.add(mesh);
+      seg.disposables.push(mesh);
+    });
 
     // ---- Curbs, columns, torches on both sides ----
     const turnSide = seg.turn === 'right' ? 1 : -1;
@@ -376,6 +382,7 @@ export class Track {
     g.add(colMesh);
     seg.disposables.push(colMesh);
 
+    seg.torches = torches;
     // Torch flames on column tops (one particle system per segment)
     if (torches.length) {
       const perTorch = 14;
@@ -638,6 +645,43 @@ export class Track {
       trunks.receiveShadow = true;
       g.add(trunks, leaves);
       seg.disposables.push(trunks, leaves);
+    }
+
+    // ---- Ferns and grass pushing through along the curbs and ruins ----
+    const tufts = [];
+    for (let d = seg.dStart + 1; d < seg.dEnd - 1; d += 0.9 + rnd() * 1.6) {
+      if (seg.inGap(d)) continue;
+      for (const side of [-1, 1]) {
+        if (side === turnSide && d > seg.length - HALF_W) continue;
+        if (side === prevSide && d < HALF_W) continue;
+        const r = rnd();
+        // inside the curb, hugging the edge (never in a running lane)
+        if (r < 0.35) tufts.push({ d, x: side * (HALF_W - 0.12 - rnd() * 0.18), y: 0, s: 0.55 + rnd() * 0.4 });
+        // on the outer ledge beyond the curb
+        else if (r < 0.75) tufts.push({ d, x: side * (CURB_X + 0.55 + rnd() * 0.25), y: -0.05, s: 0.8 + rnd() * 0.7 });
+      }
+    }
+    // Ferns crowd around the broken lips of each chasm
+    for (const [a, b] of seg.gaps) {
+      for (const edge of [a, b]) {
+        for (let i = 0; i < 4; i++) {
+          tufts.push({ d: edge + (edge === a ? -0.3 : 0.3), x: (rnd() - 0.5) * HALF_W * 1.8, y: -0.02, s: 0.5 + rnd() * 0.4 });
+        }
+      }
+    }
+    if (tufts.length) {
+      const fm = new THREE.InstancedMesh(A.geo.fern, A.mat.fern, tufts.length);
+      tufts.forEach((t, i) => {
+        seg.toWorld(t.d, t.x, t.y, _p);
+        _q.setFromAxisAngle(_s.set(0, 1, 0), rnd() * Math.PI);
+        _m.compose(_p, _q, _s.set(t.s, t.s * (0.8 + rnd() * 0.5), t.s));
+        fm.setMatrixAt(i, _m);
+        const k = 0.7 + rnd() * 0.5;
+        fm.setColorAt(i, _c.setRGB(k * (0.9 + rnd() * 0.2), k, k * 0.85));
+      });
+      fm.receiveShadow = true;
+      g.add(fm);
+      seg.disposables.push(fm);
     }
 
     // ---- Vines hanging off the walkway edges ----

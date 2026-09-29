@@ -5,11 +5,11 @@ import { mulberry32 } from './Textures.js';
 const FOG_COLOR = new THREE.Color(0x9daab0);
 
 /** Sky whose HDR output is scaled into a range that plays well with bloom. */
-function makeSky(brightness = 0.42) {
+function makeSky(brightness = 0.36) {
   const sky = new Sky();
   sky.material.fragmentShader = sky.material.fragmentShader.replace(
     'gl_FragColor = vec4( texColor, 1.0 );',
-    `gl_FragColor = vec4( min( texColor * ${brightness.toFixed(3)}, vec3( 12.0 ) ), 1.0 );`
+    `gl_FragColor = vec4( min( texColor * ${brightness.toFixed(3)}, vec3( 2.6 ) ), 1.0 );`
   );
   return sky;
 }
@@ -52,12 +52,13 @@ export class Environment {
     u.cloudScale.value = 0.00022;
 
     // Golden-hour sun, low over the jungle
-    const elevation = 27;
+    const elevation = 19;
     const azimuth = 140;
     const phi = THREE.MathUtils.degToRad(90 - elevation);
     const theta = THREE.MathUtils.degToRad(azimuth);
     this.sunDir.setFromSphericalCoords(1, phi, theta);
     u.sunPosition.value.copy(this.sunDir);
+    this.engine.sunDir.copy(this.sunDir);
     this.sky = sky;
     this.scene.add(sky);
 
@@ -79,12 +80,12 @@ export class Environment {
     envScene.add(ground);
     const env = pmrem.fromScene(envScene, 0.02).texture;
     this.scene.environment = env;
-    this.scene.environmentIntensity = 0.55;
+    this.scene.environmentIntensity = 0.6;
     pmrem.dispose();
   }
 
   buildLights() {
-    const sun = new THREE.DirectionalLight(0xffd6a0, 3.2);
+    const sun = new THREE.DirectionalLight(0xffd6a0, 3.6);
     sun.castShadow = true;
     const size = this.engine.quality.shadowMap;
     sun.shadow.mapSize.set(size, size);
@@ -96,7 +97,7 @@ export class Environment {
     this.sun = sun;
     this.scene.add(sun, sun.target);
 
-    this.hemi = new THREE.HemisphereLight(0xbfd4e6, 0x3a3222, 0.7);
+    this.hemi = new THREE.HemisphereLight(0xbfd4e6, 0x3a3222, 0.5);
     this.scene.add(this.hemi);
 
     // Warm fill from the opposite side to lift the shadows a touch
@@ -107,7 +108,7 @@ export class Environment {
   }
 
   buildFog() {
-    this.scene.fog = new THREE.FogExp2(FOG_COLOR, 0.0026);
+    this.scene.fog = new THREE.FogExp2(FOG_COLOR, 0.0019);
   }
 
   buildMountains() {
@@ -232,7 +233,7 @@ export class Environment {
           vec2 p = vWorld * 0.018;
           float n = fbm(p + vec2(uTime * 0.02, uTime * 0.013));
           n = smoothstep(0.45, 0.95, n + fbm(p * 2.3 - uTime * 0.015) * 0.35);
-          gl_FragColor = vec4(uColor, n * 0.3);
+          gl_FragColor = vec4(uColor, n * 0.16);
           #include <fog_fragment>
         }
       `,

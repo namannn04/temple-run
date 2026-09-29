@@ -9,15 +9,19 @@ arches while a pack of demon monkeys chases you.
 
 - **Endless procedural temple**: walkway segments with 90° corners, chasms, fallen logs, low
   stone arches, broken pillars and fire vents. Difficulty and speed ramp up the longer you run.
-- **Realistic look**: PBR materials with procedurally generated albedo, normal and roughness maps,
-  a physically based sky with drifting clouds, image-based lighting, soft sun shadows, exponential
-  fog, animated mist, ACES tone mapping, bloom, SMAA and a film-style colour grade.
-- **Living world**: an endless jungle canopy below the walkway with swaying leaves, ridged mountains
-  on the horizon, torch-lit columns, hanging vines, ruined gateways and distant stepped temples.
+- **Realistic look**: PBR materials with procedurally generated albedo, normal and roughness maps
+  (weathered, pitted, lichen-covered slabs polished in the middle by centuries of feet), a physically
+  based sky with drifting clouds, image-based lighting, golden-hour sun shadows, screen-space god
+  rays and lens flare, flickering torch light on the stone, exponential fog, animated mist, ACES tone
+  mapping, emissive-only bloom, SMAA and a film-style colour grade.
+- **Living world**: an endless jungle canopy below the walkway with swaying leaves, ferns and grass
+  pushing through the ruins, ridged mountains on the horizon, torch-lit columns, hanging vines,
+  ruined gateways and distant stepped temples.
 - **Animated hero**: a skinned character with run/idle blending and procedural jump and slide
   poses layered on top of the animation.
-- **Demon chasers**: a procedurally built, galloping monkey pack that follows your exact trail,
-  closes in when you stumble and pounces if you stumble twice.
+- **Demon chasers**: a pack of horned, fanged demon monkeys with real shell-rendered fur and glowing
+  eyes. They gallop along your exact trail, roar, close in when you stumble and pounce if you
+  stumble twice.
 - **Coins, power-ups and scoring**: coin trails and arcs, a coin magnet, a shield, distance-based
   score multipliers and a best score saved on your device.
 - **Synthesized audio**: a tribal drum score whose tempo follows your speed, jungle wind, demon
@@ -51,13 +55,15 @@ src/
 ├── Game.js               State machine, frame loop, collisions, scoring, power-ups
 ├── core/
 │   ├── Engine.js         Renderer, camera, post-processing chain, quality presets
+│   ├── GodRaysPass.js    Quarter-res crepuscular rays + lens flare
 │   └── GradeShader.js    Colour grade, vignette, grain, danger tint
 ├── world/
 │   ├── Textures.js       Procedural PBR texture generation (tileable noise)
 │   ├── Environment.js    Sky, sun, IBL, fog, mountains, mist, dust motes
 │   ├── TrackAssets.js    Shared geometries/materials (columns, trees, flames…)
 │   ├── Track.js          Segment generation, gameplay layout and scenery
-│   └── Forest.js         World-anchored wrapping jungle canopy
+│   ├── Forest.js         World-anchored wrapping jungle canopy
+│   └── TorchLights.js    Flickering light pool that follows the nearest torches
 ├── entities/
 │   ├── Player.js         Runner kinematics, turning, jump/slide, animation
 │   └── Demons.js         Demon pack models, gallop animation and trail following
